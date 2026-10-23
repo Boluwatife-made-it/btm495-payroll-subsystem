@@ -152,8 +152,8 @@ python3 test_prototype.py
 ==================================================================
 ```
 
-### 3. Start the REST API Server
-To start the backend API server:
+### 3. Start the REST API & Web Dashboard
+To start the backend API server and interactive UI dashboard:
 ```bash
 python3 app.py
 ```
@@ -162,10 +162,13 @@ python3 app.py
 ```
 ============================================================
  MNP Payroll Subsystem Prototype REST API Server
- Listening on http://localhost:5000
+ Web Dashboard: http://localhost:8000
+ API Health:    http://localhost:8000/api/health
  Dual-mode: SQLite (payroll.db) + Supabase Cloud Engine
 ============================================================
 ```
+
+Opening `http://localhost:8000` in any web browser loads the interactive MNP Cloud Payroll Subsystem dashboard. The dashboard can also be viewed offline by double-clicking `frontend/index.html`.
 
 ---
 

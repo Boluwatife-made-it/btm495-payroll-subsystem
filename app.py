@@ -5,6 +5,7 @@ Exposes JSON endpoints for Claude Design frontend and automated testing.
 """
 
 import json
+import os
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import sys
@@ -23,9 +24,9 @@ from services.payroll_service import PayrollService
 class PayrollAPIHandler(BaseHTTPRequestHandler):
     """Handles HTTP requests with full CORS and JSON support."""
 
-    def _set_headers(self, status=200):
+    def _set_headers(self, status=200, content_type="application/json"):
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -34,6 +35,10 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         """Pre-flight CORS handler."""
         self._set_headers(204)
+
+    def do_HEAD(self):
+        """Handles HEAD requests identically to GET."""
+        self.do_GET()
 
     def _parse_body(self):
         content_length = int(self.headers.get("Content-Length", 0))
@@ -48,6 +53,19 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed_url.query)
 
         try:
+            # 0. Serve Frontend UI Dashboard
+            if path in ("/", "/index.html"):
+                html_path = Path(__file__).parent / "frontend" / "index.html"
+                if html_path.exists():
+                    with open(html_path, "rb") as f:
+                        content = f.read()
+                    self._set_headers(200, content_type="text/html; charset=utf-8")
+                    self.wfile.write(content)
+                    return
+                else:
+                    self._set_headers(404, content_type="text/plain")
+                    self.wfile.write(b"Frontend not found")
+                    return
             # 1. Healthcheck
             if path == "/api/health":
                 self._set_headers(200)
@@ -207,12 +225,15 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "Internal Error", "message": str(e)}).encode("utf-8"))
 
 
-def run_server(port=5000):
+def run_server(port=None):
+    if port is None:
+        port = int(os.getenv("PORT", 8000))
     server_address = ("", port)
     httpd = HTTPServer(server_address, PayrollAPIHandler)
     print(f"============================================================")
     print(f" MNP Payroll Subsystem Prototype REST API Server")
-    print(f" Listening on http://localhost:{port}")
+    print(f" Web Dashboard: http://localhost:{port}")
+    print(f" API Health:    http://localhost:{port}/api/health")
     print(f" Dual-mode: SQLite (payroll.db) + Supabase Cloud Engine")
     print(f"============================================================")
     try:
