@@ -102,19 +102,22 @@ In our Milestone 2 feedback, Professor Ranj Bar pointed out that payroll rejecti
 
 ## 5. How to Run the Prototype
 
-Our prototype requires only Python 3 and runs on macOS, Linux, or Windows without installing external packages.
+Our prototype requires only Python 3 and runs out-of-the-box on Windows, macOS, or Linux with zero third-party package dependencies.
 
-### 1. Clone the Repository
+### Option A: 1-Click Launch (Windows)
+1. Double-click `run_tests.bat` to run the automated integration tests.
+2. Double-click `start.bat` to launch the API server and automatically open the MNP web dashboard in your default browser.
+
+### Option B: Terminal Command Line (Windows, macOS, Linux)
+1. **Clone & Navigate:**
 ```bash
 git clone https://github.com/Boluwatife-made-it/btm495-payroll-subsystem.git
 cd btm495-payroll-subsystem
 ```
 
-### 2. Run the Verification Tests
-To run our integration test suite verifying all 5 use cases, 9 classes, and business rules:
-```bash
-python3 test_prototype.py
-```
+2. **Run the Verification Tests:**
+- On Windows: `python test_prototype.py` (or `py test_prototype.py`)
+- On macOS/Linux: `python3 test_prototype.py`
 
 *Expected output:*
 ```

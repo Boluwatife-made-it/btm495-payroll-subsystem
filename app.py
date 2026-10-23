@@ -6,10 +6,12 @@ Exposes JSON endpoints for Claude Design frontend and automated testing.
 
 import json
 import os
-import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import sys
+import urllib.parse
+import webbrowser
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from threading import Timer
 
 # Add project root to Python module path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -236,6 +238,16 @@ def run_server(port=None):
     print(f" API Health:    http://localhost:{port}/api/health")
     print(f" Dual-mode: SQLite (payroll.db) + Supabase Cloud Engine")
     print(f"============================================================")
+
+    # Automatically launch web browser on Windows/Mac/Linux
+    if os.getenv("NO_BROWSER", "0") != "1":
+        def open_browser():
+            try:
+                webbrowser.open(f"http://localhost:{port}")
+            except Exception:
+                pass
+        Timer(1.2, open_browser).start()
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
