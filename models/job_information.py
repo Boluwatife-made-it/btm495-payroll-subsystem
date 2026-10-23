@@ -3,7 +3,10 @@ JobInformation Domain Model (Use Case 1: Employment Profiles & Pay Rates)
 Maintains departmental placement, employment type, and wage rates.
 """
 
-from .pay_change_history import PayChangeHistory
+try:
+    from .pay_change_history import PayChangeHistory
+except ImportError:
+    from pay_change_history import PayChangeHistory
 
 class JobInformation:
     VALID_TYPES = {"Full-Time", "Part-Time", "Contract"}

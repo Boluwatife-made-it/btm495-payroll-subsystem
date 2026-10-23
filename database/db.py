@@ -34,7 +34,7 @@ class DatabaseManager:
 
     def get_connection(self):
         """Returns a SQLite connection with foreign keys enabled and row factory."""
-        conn = sqlite3.connect(SQLITE_DB_PATH)
+        conn = sqlite3.connect(str(SQLITE_DB_PATH))
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.row_factory = sqlite3.Row
         return conn
