@@ -184,7 +184,8 @@ The API provides JSON endpoints for frontend integration and external services:
 | `GET` | `/api/health` | System | Healthcheck confirmation |
 | `GET` | `/api/clients` | System | Returns client list for the multi-tenant dropdown |
 | `GET` | `/api/employees?client_id=101` | UC1 | Returns employees with masked banking details |
-| `POST` | `/api/employees` | UC1 | Onboards a new employee, bank account, and job record |
+| `POST` | `/api/employees` | UC1 | Onboards a new employee, bank account, and job record (SubFlow 3S.1) |
+| `POST` | `/api/employees/update` | UC1 | Updates existing employee, bank, and job placement (SubFlow 3S.2) |
 | `GET` | `/api/timesheets?client_id=101` | UC2 | Returns period timesheets with status indicators |
 | `POST` | `/api/timesheets/submit` | UC2 | Submits timesheet for review |
 | `POST` | `/api/timesheets/update` | UC2 | Updates hours (enforces lockout rule) |
@@ -197,6 +198,8 @@ The API provides JSON endpoints for frontend integration and external services:
 | `POST` | `/api/payroll/approve` | UC5 | Approves run and locks all associated timesheets |
 | `POST` | `/api/payroll/reject` | UC5 | Rejects run and generates technician alert banner |
 | `GET` | `/api/payroll/stubs?run_id=1` | UC5 | Returns itemized employee pay stubs |
+| `GET` | `/api/payroll/tax-slips?client_id=101&tax_year=2026` | UC5 | Returns annual T4 and Releve 1 tax slips |
+| `POST` | `/api/payroll/tax-slips/generate` | UC5 | Verifies finalized pay runs and generates T4 and Releve 1 slips |
 
 ---
 

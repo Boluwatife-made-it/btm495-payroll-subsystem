@@ -121,6 +121,15 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
                 self._set_headers(200)
                 self.wfile.write(json.dumps({"run_id": run_id, "pay_stubs": stubs}).encode("utf-8"))
 
+            # 9. UC5: Tax Slips (T4 & Releve 1)
+            elif path == "/api/payroll/tax-slips":
+                client_id = int(query["client_id"][0]) if "client_id" in query else None
+                employee_id = int(query["employee_id"][0]) if "employee_id" in query else None
+                tax_year = int(query["tax_year"][0]) if "tax_year" in query else None
+                slips = PayrollService.get_tax_slips(client_id=client_id, employee_id=employee_id, tax_year=tax_year)
+                self._set_headers(200)
+                self.wfile.write(json.dumps({"tax_slips": slips}).encode("utf-8"))
+
             else:
                 self._set_headers(404)
                 self.wfile.write(json.dumps({"error": f"Endpoint '{path}' not found."}).encode("utf-8"))
@@ -155,6 +164,27 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
                     base_salary=float(body.get("base_salary", 0.0))
                 )
                 self._set_headers(201)
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+
+            # 1b. UC1: Edit Employee Record (SubFlow 3S.2)
+            elif path == "/api/employees/update":
+                emp_id = int(body["employee_id"])
+                res = EmployeeService.update_employee(
+                    employee_id=emp_id,
+                    first_name=body.get("first_name"),
+                    last_name=body.get("last_name"),
+                    email=body.get("email"),
+                    phone=body.get("phone"),
+                    status=body.get("status"),
+                    institution_number=body.get("institution_number"),
+                    transit_number=body.get("transit_number"),
+                    account_number=body.get("account_number"),
+                    account_type=body.get("account_type"),
+                    job_title=body.get("job_title"),
+                    department=body.get("department"),
+                    employment_type=body.get("employment_type")
+                )
+                self._set_headers(200)
                 self.wfile.write(json.dumps(res).encode("utf-8"))
 
             # 2. UC2: Submit Timesheet
@@ -213,6 +243,14 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
                 reason = body.get("reason", "Discrepancy in reported hours")
                 res = PayrollService.process_approval(run_id, approve=False, reason=reason)
                 self._set_headers(200)
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+
+            # 9. UC5: Generate Tax Slips (T4 & Releve 1)
+            elif path == "/api/payroll/tax-slips/generate":
+                client_id = int(body.get("client_id", 101))
+                tax_year = int(body.get("tax_year", 2026))
+                res = PayrollService.generate_tax_slips(client_id=client_id, tax_year=tax_year)
+                self._set_headers(201)
                 self.wfile.write(json.dumps(res).encode("utf-8"))
 
             else:

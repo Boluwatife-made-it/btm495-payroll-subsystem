@@ -37,6 +37,18 @@ def run_tests():
     print("  --> PASS: Tenant isolation confirmed. Apex (3 employees), Bakery (1 employee).")
     print("  --> PASS: Bank account masking active (****4567).")
 
+    # SubFlow 3S.2: Edit Existing Employee Record
+    update_res = EmployeeService.update_employee(
+        employee_id=1,
+        phone="514-555-9999",
+        job_title="Lead Logistics Coordinator"
+    )
+    assert update_res["employee_id"] == 1
+    updated_emp = EmployeeService.get_employees_by_client(101)[0]
+    assert updated_emp["phone"] == "514-555-9999"
+    assert updated_emp["job"]["job_title"] == "Lead Logistics Coordinator"
+    print("  --> PASS: UC1 SubFlow 3S.2 confirmed: Employee record updated (514-555-9999, Lead Logistics Coordinator).")
+
     # ------------------------------------------------------------------
     # TEST 2: Timesheet Submission & Post-Approval Lockout (Use Case 2)
     # ------------------------------------------------------------------
@@ -127,6 +139,52 @@ def run_tests():
     assert stubs[0]["earnings"]["gross"] > 0
     assert stubs[0]["net_pay"] > 0
     print(f"  --> PASS: Itemized Pay Stubs generated for {stubs[0]['employee_name']} (Net: {stubs[0]['net_pay']} CAD).")
+
+    # ------------------------------------------------------------------
+    # TEST 5b: UC5 Year-End Tax Slip Generation (T4 & Releve 1)
+    # ------------------------------------------------------------------
+    print("\n[TEST 5b] Verifying UC5: Annual T4 & Releve 1 Tax Slip Generation...")
+    # Generate 2026 tax slips for Client 101 (Apex Logistics)
+    tax_res = PayrollService.generate_tax_slips(client_id=101, tax_year=2026)
+    assert tax_res["success"] is True
+    assert tax_res["count"] == 4, f"Expected 4 slips (2 employees x 2 slip types), got {tax_res['count']}"
+
+    # Query generated tax slips
+    slips = PayrollService.get_tax_slips(client_id=101, tax_year=2026)
+    assert len(slips) == 4
+
+    t4_slips = [s for s in slips if s["slip_type"] == "T4"]
+    rl1_slips = [s for s in slips if s["slip_type"] == "Releve_1"]
+    assert len(t4_slips) == 2
+    assert len(rl1_slips) == 2
+
+    # Verify YTD numbers match pay stubs
+    marc_t4 = [s for s in t4_slips if s["employee_id"] == 1][0]
+    assert marc_t4["box_employment_income"] == 3675.00
+    assert marc_t4["box_income_tax_deducted"] == 551.25
+    assert marc_t4["box_ei_premiums"] == 61.01
+    assert marc_t4["box_cpp_qpp_contributions"] == 200.29
+
+    marc_rl1 = [s for s in rl1_slips if s["employee_id"] == 1][0]
+    assert marc_rl1["box_employment_income"] == 3675.00
+    assert marc_rl1["box_income_tax_deducted"] == 551.25
+    assert marc_rl1["box_qpip_premiums"] == 18.01
+
+    print(f"  --> PASS: T4 Slip verified for {marc_t4['employee_name']} (Employment Income: {marc_t4['box_employment_income']} CAD).")
+    print(f"  --> PASS: Releve 1 Slip verified for {marc_rl1['employee_name']} (QPIP: {marc_rl1['box_qpip_premiums']} CAD).")
+
+    # Verify Defensive Rule: Unapproved run prevents tax slip generation
+    db.execute(
+        """INSERT INTO payroll_runs (run_id, client_id, period_start, period_end, total_gross,
+                                    total_deductions, total_net, approval_status)
+           VALUES (999, 101, '2026-11-01', '2026-11-15', 5000.0, 1500.0, 3500.0, 'Pending_Approval')"""
+    )
+    try:
+        PayrollService.generate_tax_slips(client_id=101, tax_year=2026)
+        assert False, "Defensive check failed: Tax slips generated while a pay run was unapproved!"
+    except ValueError as e:
+        assert "must be Approved" in str(e)
+        print(f"  --> PASS: UC5 Defensive Rule confirmed: Unapproved run blocked tax slip generation: '{e}'")
 
     print("\n==================================================================")
     print(" ALL INTEGRATION TESTS PASSED: 100% SUCCESS")

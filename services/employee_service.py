@@ -93,3 +93,68 @@ class EmployeeService:
         )
 
         return {"employee_id": emp_id, "message": f"Employee {first_name} {last_name} successfully created."}
+
+    @staticmethod
+    def update_employee(employee_id: int, first_name: str = None, last_name: str = None,
+                        email: str = None, phone: str = None, status: str = None,
+                        institution_number: str = None, transit_number: str = None,
+                        account_number: str = None, account_type: str = None,
+                        job_title: str = None, department: str = None,
+                        employment_type: str = None):
+        """
+        Updates an existing employee record, bank coordinates, and job placement.
+        Directly implements Use Case 1 SubFlow 3S.2 (Edit Employee Record).
+        """
+        emp = db.query_one("SELECT * FROM employees WHERE employee_id = ?", (employee_id,))
+        if not emp:
+            raise ValueError(f"Employee #{employee_id} not found.")
+
+        # 1. Update personal details
+        fn = first_name if first_name is not None else emp["first_name"]
+        ln = last_name if last_name is not None else emp["last_name"]
+        em = email if email is not None else emp["email"]
+        ph = phone if phone is not None else emp["phone"]
+        st = status if status is not None else emp["status"]
+
+        db.execute(
+            """UPDATE employees
+               SET first_name = ?, last_name = ?, email = ?, phone = ?, status = ?
+               WHERE employee_id = ?""",
+            (fn, ln, em, ph, st, employee_id)
+        )
+
+        # 2. Update banking details if provided
+        if any(v is not None for v in (institution_number, transit_number, account_number, account_type)):
+            bank = db.query_one("SELECT * FROM bank_accounts WHERE employee_id = ?", (employee_id,))
+            if bank:
+                inst = institution_number if institution_number is not None else bank["institution_number"]
+                trn = transit_number if transit_number is not None else bank["transit_number"]
+                acc = account_number if account_number is not None else bank["account_number"]
+                at = account_type if account_type is not None else bank["account_type"]
+                db.execute(
+                    """UPDATE bank_accounts
+                       SET institution_number = ?, transit_number = ?, account_number = ?, account_type = ?
+                       WHERE employee_id = ?""",
+                    (inst, trn, acc, at, employee_id)
+                )
+
+        # 3. Update job details if provided
+        if any(v is not None for v in (job_title, department, employment_type)):
+            job = db.query_one("SELECT * FROM job_information WHERE employee_id = ?", (employee_id,))
+            if job:
+                jt = job_title if job_title is not None else job["job_title"]
+                dep = department if department is not None else job["department"]
+                et = employment_type if employment_type is not None else job["employment_type"]
+                db.execute(
+                    """UPDATE job_information
+                       SET job_title = ?, department = ?, employment_type = ?
+                       WHERE employee_id = ?""",
+                    (jt, dep, et, employee_id)
+                )
+
+        return {
+            "employee_id": employee_id,
+            "full_name": f"{fn} {ln}",
+            "status": st,
+            "message": f"Employee #{employee_id} ({fn} {ln}) successfully updated."
+        }
