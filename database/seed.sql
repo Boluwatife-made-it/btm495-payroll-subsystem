@@ -71,7 +71,7 @@ INSERT INTO timesheets (timesheet_id, employee_id, period_start, period_end, reg
 -- 8. SEED COMPLETED PAYROLL RUN #1 (Client 101, Approved & Paid)
 -- ------------------------------------------------------------------------------
 INSERT INTO payroll_runs (run_id, client_id, period_start, period_end, run_date, total_gross, total_deductions, total_net, approval_status, approved_at, rejection_reason) VALUES
-(1, 101, '2026-10-01', '2026-10-15', '2026-10-16 10:00:00', 6275.00, 1819.75, 4455.25, 'Approved', '2026-10-16 14:30:00', NULL);
+(1, 101, '2026-10-01', '2026-10-15', '2026-10-16 10:00:00', 6275.00, 1819.75, 4455.25, 'Pending_Approval', NULL, NULL);
 
 -- ------------------------------------------------------------------------------
 -- 9. SEED STATUTORY REMITTANCES (Quebec Dual Split for Run #1)

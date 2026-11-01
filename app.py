@@ -245,6 +245,13 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
                 self._set_headers(200)
                 self.wfile.write(json.dumps(res).encode("utf-8"))
 
+            # 8b. UC5: Resubmit Rejected Pay Run
+            elif path == "/api/payroll/resubmit":
+                run_id = int(body["run_id"])
+                res = PayrollService.resubmit_for_approval(run_id)
+                self._set_headers(200)
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+
             # 9. UC5: Generate Tax Slips (T4 & Releve 1)
             elif path == "/api/payroll/tax-slips/generate":
                 client_id = int(body.get("client_id", 101))

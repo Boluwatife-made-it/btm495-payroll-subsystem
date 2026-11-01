@@ -5,6 +5,12 @@ Enforces work duration logging and post-approval timesheet lockout.
 
 class Timesheet:
     VALID_STATUSES = {"Draft", "Submitted", "Approved", "Locked"}
+    VALID_TRANSITIONS = {
+        "Draft": {"Submitted"},
+        "Submitted": {"Approved", "Locked", "Draft"},
+        "Approved": {"Locked"},
+        "Locked": set()
+    }
 
     def __init__(self, timesheet_id: int, employee_id: int, period_start: str,
                  period_end: str, regular_hours: float = 0.0, overtime_hours: float = 0.0,
@@ -30,6 +36,8 @@ class Timesheet:
         """Transitions timesheet from Draft to Submitted."""
         if self.status == "Locked":
             raise PermissionError("Cannot modify or submit a locked timesheet.")
+        if self.status != "Draft":
+            raise ValueError(f"Invalid transition: Cannot submit timesheet in '{self.status}' status. Only 'Draft' timesheets can be submitted.")
         self.status = "Submitted"
         return True
 
@@ -37,11 +45,17 @@ class Timesheet:
         """Transitions timesheet to Approved."""
         if self.status == "Locked":
             raise PermissionError("Timesheet is already locked.")
+        if self.status != "Submitted":
+            raise ValueError(f"Invalid transition: Cannot approve timesheet in '{self.status}' status. Only 'Submitted' timesheets can be approved.")
         self.status = "Approved"
         return True
 
     def lock(self) -> bool:
         """Enforces the post-approval lockout hedge."""
+        if self.status == "Locked":
+            return True  # Idempotent lock
+        if self.status not in {"Submitted", "Approved"}:
+            raise ValueError(f"Invalid transition: Cannot lock timesheet in '{self.status}' status. Only 'Submitted' or 'Approved' timesheets can be locked.")
         self.status = "Locked"
         return True
 

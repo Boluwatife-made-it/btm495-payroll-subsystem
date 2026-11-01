@@ -10,6 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from database.db import db
+from models.timesheet import Timesheet
+from models.payroll_run import PayrollRun
 from services.employee_service import EmployeeService
 from services.timesheet_service import TimesheetService
 from services.compensation_service import CompensationService
@@ -128,10 +130,38 @@ def run_tests():
     print(f"  --> PASS: UC5 Alternate Flow 3a Alert Banner generated for Technician:")
     print(f"            '{alert['banner_text']}'")
 
-    # Test Manager Approval
+    # Transition Guard Check: Cannot directly approve an already Rejected run without resubmission (L06 E.2)
+    try:
+        PayrollService.process_approval(run_id=1, approve=True)
+        assert False, "State machine violation: Direct approval allowed from Rejected state without resubmission!"
+    except ValueError as e:
+        assert "Cannot approve" in str(e)
+        print(f"  --> PASS: L06 E.2 Transition Guard blocked direct approval from 'Rejected': '{e}'")
+
+    # Technician addresses discrepancy and resubmits (Rejected -> Pending_Approval)
+    resubmit_res = PayrollService.resubmit_for_approval(run_id=1)
+    assert resubmit_res["status"] == "Pending_Approval"
+    print("  --> PASS: Payroll Run #1 resubmitted: status transitioned to 'Pending_Approval'.")
+
+    # Test Manager Approval (Pending_Approval -> Approved)
     approve_res = PayrollService.process_approval(run_id=1, approve=True)
     assert approve_res["status"] == "Approved"
     print(f"  --> PASS: Payroll Run #1 Approved at {approve_res['approved_at']}.")
+
+    # Verify Timesheet domain operations were invoked (Finding 2 / L07 B.4 Rule 4)
+    # Timesheet 3 was 'Submitted' prior to approval, now locked via Timesheet.lock()
+    ts_list = TimesheetService.get_timesheets_for_client(101)
+    ts3 = [t for t in ts_list if t["timesheet_id"] == 3][0]
+    assert ts3["status"] == "Locked"
+    print("  --> PASS: Timesheet #3 locked via domain operation Timesheet.lock() during run approval.")
+
+    # Transition Guard Check: Terminal state prevents duplicate approval (Finding 3 / L06 E.2)
+    try:
+        PayrollService.process_approval(run_id=1, approve=True)
+        assert False, "State machine violation: Allowed approving an already Approved run!"
+    except ValueError as e:
+        assert "Cannot approve" in str(e)
+        print(f"  --> PASS: L06 E.2 Transition Guard blocked duplicate approval on 'Approved' run: '{e}'")
 
     # Verify Pay Stubs
     stubs = PayrollService.get_stubs_by_run(run_id=1)
@@ -186,9 +216,122 @@ def run_tests():
         assert "must be Approved" in str(e)
         print(f"  --> PASS: UC5 Defensive Rule confirmed: Unapproved run blocked tax slip generation: '{e}'")
 
+    # ------------------------------------------------------------------
+    # TEST 6: Play 1 - Draft Timesheet Exclusion (Finding 1) & Salaried Staff Pay (Finding 10)
+    # ------------------------------------------------------------------
+    print("\n[TEST 6] Verifying Play 1: Draft Timesheet Exclusion & Salaried Pay Calculation...")
+    # 1. Draft Timesheet Exclusion (Finding 1 / L06 E.2)
+    # Timesheet #4 for Client 102 (Boulangerie) is currently in 'Draft'
+    try:
+        PayrollService.calculate_new_run(client_id=102, period_start="2026-10-01", period_end="2026-10-15")
+        assert False, "Accounting integrity failure: Draft timesheet was processed and paid!"
+    except ValueError as e:
+        assert "No submitted timesheets found" in str(e)
+        print(f"  --> PASS: Finding 1 Guard Verified: Draft timesheets excluded from pay run: '{e}'")
+
+    # Submit Timesheet #4 so it becomes payable
+    TimesheetService.submit_timesheet(timesheet_id=4)
+    run_bakery = PayrollService.calculate_new_run(client_id=102, period_start="2026-10-01", period_end="2026-10-15")
+    assert run_bakery["run_id"] is not None
+    print(f"  --> PASS: Timesheet #4 submitted and processed in Pay Run #{run_bakery['run_id']}.")
+
+    # 2. Salaried Staff Pay Calculation (Finding 10 / L07 B.2)
+    # Add a purely salaried employee (hourly_rate = 0.00, base_salary = 78000.00)
+    new_sal_emp = EmployeeService.create_employee(
+        client_id=102,
+        first_name="Henri",
+        last_name="Richard",
+        email="h.richard@boulangeriesl.ca",
+        phone="514-555-8888",
+        hire_date="2026-01-15",
+        institution_number="001",
+        transit_number="12345",
+        account_number="9876543",
+        account_type="Checking",
+        job_title="Executive Pastry Chef",
+        department="Kitchen",
+        employment_type="Full-Time",
+        hourly_rate=0.00,
+        base_salary=78000.00,
+        pay_frequency="Bi-Weekly"
+    )
+    sal_emp_id = new_sal_emp["employee_id"]
+
+    # Seed a submitted timesheet for Henri for the next pay period
+    db.execute(
+        """INSERT INTO timesheets (employee_id, period_start, period_end, regular_hours, overtime_hours, status)
+           VALUES (?, '2026-10-16', '2026-10-31', 80.00, 0.00, 'Submitted')""",
+        (sal_emp_id,)
+    )
+
+    sal_run = PayrollService.calculate_new_run(client_id=102, period_start="2026-10-16", period_end="2026-10-31")
+    sal_stubs = PayrollService.get_stubs_by_run(sal_run["run_id"])
+    henri_stub = [s for s in sal_stubs if s["employee_id"] == sal_emp_id][0]
+
+    # Expected bi-weekly regular earnings: 78000 / 26 = 3000.00 CAD
+    expected_sal_reg = round(78000.00 / 26.0, 2)
+    assert henri_stub["earnings"]["regular"] == expected_sal_reg
+    assert henri_stub["earnings"]["gross"] == expected_sal_reg
+    print(f"  --> PASS: Finding 10 Verified: Salaried employee {henri_stub['employee_name']} earned {henri_stub['earnings']['gross']} CAD (78000/26), not 0 CAD.")
+
+    # ------------------------------------------------------------------
+    # TEST 7: Play 1 - Domain State Machine Transition Guards (Finding 3 / L06 E.2)
+    # ------------------------------------------------------------------
+    print("\n[TEST 7] Verifying Play 1: Explicit Transition Guards on Timesheet & PayrollRun...")
+    
+    # Timesheet Transition Guards:
+    ts_test = Timesheet(timesheet_id=999, employee_id=1, period_start="2026-11-01", period_end="2026-11-15", status="Draft")
+    
+    # Guard: Cannot lock from Draft
+    try:
+        ts_test.lock()
+        assert False, "State violation: Timesheet.lock() succeeded from Draft!"
+    except ValueError as e:
+        assert "Cannot lock timesheet" in str(e)
+        print(f"  --> PASS: Timesheet transition guard blocked lock() from 'Draft': '{e}'")
+
+    # Guard: Cannot approve from Draft
+    try:
+        ts_test.approve()
+        assert False, "State violation: Timesheet.approve() succeeded from Draft!"
+    except ValueError as e:
+        assert "Cannot approve timesheet" in str(e)
+        print(f"  --> PASS: Timesheet transition guard blocked approve() from 'Draft': '{e}'")
+
+    # Transition Draft -> Submitted
+    ts_test.submit()
+    assert ts_test.status == "Submitted"
+
+    # Guard: Cannot submit from Submitted
+    try:
+        ts_test.submit()
+        assert False, "State violation: Timesheet.submit() succeeded from Submitted!"
+    except ValueError as e:
+        assert "Cannot submit timesheet" in str(e)
+        print(f"  --> PASS: Timesheet transition guard blocked submit() from 'Submitted': '{e}'")
+
+    # PayrollRun Transition Guards:
+    pr_test = PayrollRun(run_id=888, client_id=101, period_start="2026-11-01", period_end="2026-11-15", approval_status="Draft")
+    
+    # Guard: Cannot approve from Draft
+    try:
+        pr_test.approve()
+        assert False, "State violation: PayrollRun.approve() succeeded from Draft!"
+    except ValueError as e:
+        assert "Cannot approve payroll run" in str(e)
+        print(f"  --> PASS: PayrollRun transition guard blocked approve() from 'Draft': '{e}'")
+
+    # Guard: Cannot reject from Draft
+    try:
+        pr_test.reject("Draft rejection")
+        assert False, "State violation: PayrollRun.reject() succeeded from Draft!"
+    except ValueError as e:
+        assert "Cannot reject payroll run" in str(e)
+        print(f"  --> PASS: PayrollRun transition guard blocked reject() from 'Draft': '{e}'")
+
     print("\n==================================================================")
     print(" ALL INTEGRATION TESTS PASSED: 100% SUCCESS")
-    print(" ALL 5 USE CASES AND BUSINESS RULES VERIFIED")
+    print(" ALL 5 USE CASES, PLAY 1 DOMAIN REFACTORS & GUARDS VERIFIED")
     print("==================================================================")
 
 if __name__ == "__main__":

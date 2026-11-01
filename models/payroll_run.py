@@ -97,6 +97,12 @@ class TaxSlip:
 class PayrollRun:
     """Central orchestrator for gross-to-net calculation and approval workflow."""
     VALID_STATUSES = {"Draft", "Pending_Approval", "Approved", "Rejected"}
+    VALID_TRANSITIONS = {
+        "Draft": {"Pending_Approval"},
+        "Pending_Approval": {"Approved", "Rejected"},
+        "Rejected": {"Pending_Approval"},
+        "Approved": set()
+    }
 
     def __init__(self, run_id: int, client_id: int, period_start: str,
                  period_end: str, run_date: str = None, total_gross: float = 0.0,
@@ -120,7 +126,10 @@ class PayrollRun:
 
     def submit_for_approval(self) -> bool:
         """Transitions pay run to Pending_Approval for client manager review."""
+        if self.approval_status not in {"Draft", "Rejected"}:
+            raise ValueError(f"Invalid transition: Cannot submit payroll run in '{self.approval_status}' status. Must be 'Draft' or 'Rejected'.")
         self.approval_status = "Pending_Approval"
+        self.rejection_reason = None
         return True
 
     def approve(self, associated_timesheets: list = None) -> dict:
@@ -128,6 +137,8 @@ class PayrollRun:
         Approves pay run, locks all associated timesheets (post-approval hedge),
         and enables statutory remittance generation.
         """
+        if self.approval_status != "Pending_Approval":
+            raise ValueError(f"Invalid transition: Cannot approve payroll run in '{self.approval_status}' status. Must be 'Pending_Approval'.")
         self.approval_status = "Approved"
         self.approved_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.rejection_reason = None
@@ -150,6 +161,8 @@ class PayrollRun:
         Records rejection reason and triggers real-time notification alert banner
         destined for the Accounting Technician's dashboard.
         """
+        if self.approval_status != "Pending_Approval":
+            raise ValueError(f"Invalid transition: Cannot reject payroll run in '{self.approval_status}' status. Must be 'Pending_Approval'.")
         if not reason or not str(reason).strip():
             raise ValueError("A clear rejection reason must be entered by the Client Manager.")
         

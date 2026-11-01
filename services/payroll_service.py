@@ -49,7 +49,7 @@ class PayrollService:
             JOIN job_information j ON e.employee_id = j.employee_id
             JOIN compensation_structures c ON e.employee_id = c.employee_id
             JOIN timesheets t ON e.employee_id = t.employee_id
-            WHERE e.client_id = ? AND t.period_start = ? AND t.period_end = ?
+            WHERE e.client_id = ? AND t.period_start = ? AND t.period_end = ? AND t.status = 'Submitted'
         """
         records = db.query_all(sql, (client_id, period_start, period_end))
         if not records:
@@ -71,10 +71,18 @@ class PayrollService:
             reg_hrs = float(r["regular_hours"])
             ot_hrs = float(r["overtime_hours"])
             rate = float(r["hourly_rate"])
+            base_sal = float(r.get("base_salary") or 0.0)
             ot_mult = float(r["overtime_multiplier"])
 
-            reg_earn = round(reg_hrs * rate, 2)
-            ot_earn = round(ot_hrs * rate * ot_mult, 2)
+            if rate > 0:
+                reg_earn = round(reg_hrs * rate, 2)
+            elif base_sal > 0:
+                # Bi-weekly pay period: annual base salary divided by 26 standard pay periods
+                reg_earn = round(base_sal / 26.0, 2)
+            else:
+                reg_earn = 0.0
+
+            ot_earn = round(ot_hrs * rate * ot_mult, 2) if rate > 0 else 0.0
             gross = round(reg_earn + ot_earn, 2)
 
             # Standard Canadian & Quebec Statutory Deductions formulas
@@ -180,24 +188,49 @@ class PayrollService:
         )
 
         if approve:
-            # 1. Approve domain model
-            res = run.approve()
-            db.execute(
-                "UPDATE payroll_runs SET approval_status = 'Approved', approved_at = ?, rejection_reason = NULL WHERE run_id = ?",
-                (run.approved_at, run_id)
-            )
-
-            # 2. Lock all timesheets linked to this client and pay period (Post-Approval Hedge)
-            db.execute(
-                """UPDATE timesheets SET status = 'Locked'
+            # Load associated timesheets as domain objects to tie transitions to operations (L07 B.4 Rule 4)
+            ts_rows = db.query_all(
+                """SELECT timesheet_id, employee_id, period_start, period_end,
+                          regular_hours, overtime_hours, vacation_days, sick_days, status
+                   FROM timesheets
                    WHERE period_start = ? AND period_end = ?
                    AND employee_id IN (SELECT employee_id FROM employees WHERE client_id = ?)""",
                 (run.period_start, run.period_end, run.client_id)
             )
+            timesheet_objs = [
+                Timesheet(
+                    timesheet_id=ts["timesheet_id"],
+                    employee_id=ts["employee_id"],
+                    period_start=ts["period_start"],
+                    period_end=ts["period_end"],
+                    regular_hours=float(ts["regular_hours"]),
+                    overtime_hours=float(ts["overtime_hours"]),
+                    vacation_days=int(ts["vacation_days"]),
+                    sick_days=int(ts["sick_days"]),
+                    status=ts["status"]
+                )
+                for ts in ts_rows
+            ]
+
+            # 1. Approve domain model and lock associated timesheets via domain operations
+            res = run.approve(associated_timesheets=timesheet_objs)
+
+            # 2. Persist state machine transitions
+            db.execute(
+                "UPDATE payroll_runs SET approval_status = 'Approved', approved_at = ?, rejection_reason = NULL WHERE run_id = ?",
+                (run.approved_at, run_id)
+            )
+            for ts in timesheet_objs:
+                db.execute(
+                    "UPDATE timesheets SET status = ? WHERE timesheet_id = ?",
+                    (ts.status, ts.timesheet_id)
+                )
+
             return {
                 "success": True,
                 "status": "Approved",
                 "approved_at": run.approved_at,
+                "timesheets_locked": res.get("timesheets_locked", len(timesheet_objs)),
                 "message": "Payroll Run approved. All associated timesheets locked."
             }
         else:
@@ -213,6 +246,38 @@ class PayrollService:
                 "rejection_reason": run.rejection_reason,
                 "alert": alert
             }
+
+    @staticmethod
+    def resubmit_for_approval(run_id: int):
+        """
+        Resubmits a rejected pay run back to Pending_Approval after discrepancy resolution.
+        Enforces the state machine transition Rejected -> Pending_Approval.
+        """
+        row = db.query_one("SELECT * FROM payroll_runs WHERE run_id = ?", (run_id,))
+        if not row:
+            raise ValueError(f"Payroll Run #{run_id} not found.")
+
+        run = PayrollRun(
+            run_id=row["run_id"],
+            client_id=row["client_id"],
+            period_start=row["period_start"],
+            period_end=row["period_end"],
+            run_date=row["run_date"],
+            total_gross=row["total_gross"],
+            total_deductions=row["total_deductions"],
+            total_net=row["total_net"],
+            approval_status=row["approval_status"]
+        )
+        run.submit_for_approval()
+        db.execute(
+            "UPDATE payroll_runs SET approval_status = 'Pending_Approval', rejection_reason = NULL WHERE run_id = ?",
+            (run_id,)
+        )
+        return {
+            "success": True,
+            "status": "Pending_Approval",
+            "message": f"Payroll Run #{run_id} resubmitted for Client Manager approval."
+        }
 
     @staticmethod
     def get_stubs_by_run(run_id: int):
