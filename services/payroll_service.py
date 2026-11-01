@@ -188,7 +188,7 @@ class PayrollService:
         )
 
         if approve:
-            # Load associated timesheets as domain objects to tie transitions to operations (L07 B.4 Rule 4)
+            # Load associated timesheets as domain objects to tie transitions to operations (Chapter 7: Balancing Structural & Behavioral Models)
             ts_rows = db.query_all(
                 """SELECT timesheet_id, employee_id, period_start, period_end,
                           regular_hours, overtime_hours, vacation_days, sick_days, status
