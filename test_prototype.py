@@ -217,9 +217,9 @@ def run_tests():
         print(f"  --> PASS: UC5 Defensive Rule confirmed: Unapproved run blocked tax slip generation: '{e}'")
 
     # ------------------------------------------------------------------
-    # TEST 6: Play 1 - Draft Timesheet Exclusion (Chapter 6) & Salaried Staff Pay (Chapter 7)
+    # TEST 6: Domain Integrity - Draft Timesheet Exclusion (Chapter 6) & Salaried Staff Pay (Chapter 7)
     # ------------------------------------------------------------------
-    print("\n[TEST 6] Verifying Play 1: Draft Timesheet Exclusion & Salaried Pay Calculation...")
+    print("\n[TEST 6] Verifying Domain Integrity: Draft Timesheet Exclusion & Salaried Pay Calculation...")
     # 1. Draft Timesheet Exclusion (Chapter 6: Guard Conditions)
     # Timesheet #4 for Client 102 (Boulangerie) is currently in 'Draft'
     try:
@@ -275,9 +275,9 @@ def run_tests():
     print(f"  --> PASS: Chapter 7 Traceability Verified: Salaried employee {henri_stub['employee_name']} earned {henri_stub['earnings']['gross']} CAD (78000/26), not 0 CAD.")
 
     # ------------------------------------------------------------------
-    # TEST 7: Play 1 - Domain State Machine Transition Guards (Chapter 6: Behavioral Modeling)
+    # TEST 7: Domain State Machine Transition Guards (Chapter 6: Behavioral Modeling)
     # ------------------------------------------------------------------
-    print("\n[TEST 7] Verifying Play 1: Explicit Transition Guards on Timesheet & PayrollRun...")
+    print("\n[TEST 7] Verifying Explicit Transition Guards on Timesheet & PayrollRun...")
     
     # Timesheet Transition Guards:
     ts_test = Timesheet(timesheet_id=999, employee_id=1, period_start="2026-11-01", period_end="2026-11-15", status="Draft")
@@ -331,7 +331,7 @@ def run_tests():
 
     print("\n==================================================================")
     print(" ALL INTEGRATION TESTS PASSED: 100% SUCCESS")
-    print(" ALL 5 USE CASES, PLAY 1 DOMAIN REFACTORS & GUARDS VERIFIED")
+    print(" ALL 5 USE CASES, DOMAIN REFACTORS & GUARDS VERIFIED")
     print("==================================================================")
 
 if __name__ == "__main__":

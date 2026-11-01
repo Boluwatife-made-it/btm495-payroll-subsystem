@@ -243,7 +243,7 @@ btm495-payroll-subsystem/
 
 To ensure our implementation aligns with textbook software engineering principles and the behavioral/structural modeling rules taught in BTM 495 (Chapters 6 and 7), our team conducted a comprehensive design audit and executed the following refactors:
 
-### Sprint Update: 2026-11-01 15:30 EDT — Domain Model Integrity & State Machine Refactor (Play 1)
+### Sprint Update: 2026-11-01 15:30 EDT — Domain Model Integrity & State Machine Refactor (Phase 1: Core Domain)
 
 | Area / Component | Finding / Violation | BTM 495 Principle | Architectural Fix | Why We Made This Change |
 |---|---|---|---|---|
