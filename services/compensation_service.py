@@ -6,6 +6,7 @@ Handles hourly wage modifications and maintains the SOX-compliant audit log.
 from database.db import db
 from models.job_information import JobInformation
 from models.pay_change_history import PayChangeHistory
+from models.employee import Employee
 
 class CompensationService:
     @staticmethod
@@ -15,15 +16,7 @@ class CompensationService:
         if not job_row:
             raise ValueError(f"Job information for employee #{employee_id} not found.")
 
-        job = JobInformation(
-            job_id=job_row["job_id"],
-            employee_id=job_row["employee_id"],
-            job_title=job_row["job_title"],
-            department=job_row["department"],
-            employment_type=job_row["employment_type"],
-            base_salary=float(job_row["base_salary"]),
-            hourly_rate=float(job_row["hourly_rate"])
-        )
+        job = JobInformation.from_row(job_row)
 
         # Domain model updates rate and produces audit entry
         audit_entry = job.update_hourly_rate(new_rate=new_rate, reason=reason, authorized_by=authorized_by)
@@ -82,6 +75,6 @@ class CompensationService:
                 change_date=r["change_date"]
             )
             d = entry.to_dict()
-            d["employee_name"] = f"{r['first_name']} {r['last_name']}"
+            d["employee_name"] = Employee.format_full_name(r["first_name"], r["last_name"])
             results.append(d)
         return results

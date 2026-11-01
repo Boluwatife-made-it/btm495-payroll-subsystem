@@ -31,6 +31,80 @@ class PayStub:
         self.net_pay = round(float(net_pay), 2)
         self.generated_at = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    @classmethod
+    def calculate(cls, employee_id: int, regular_hours: float, overtime_hours: float,
+                  hourly_rate: float, base_salary: float, overtime_multiplier: float,
+                  period_start: str, period_end: str, stub_id: int = 0, run_id: int = 0) -> "PayStub":
+        """
+        Calculates earnings and statutory deductions (Chapter 5 & 7: Knowing and Doing Together).
+        Implements Standard Canadian & Quebec Statutory Deductions formulas.
+        """
+        reg_hrs = float(regular_hours)
+        ot_hrs = float(overtime_hours)
+        rate = float(hourly_rate)
+        base_sal = float(base_salary or 0.0)
+        ot_mult = float(overtime_multiplier or 1.5)
+
+        if rate > 0:
+            reg_earn = round(reg_hrs * rate, 2)
+        elif base_sal > 0:
+            reg_earn = round(base_sal / 26.0, 2)
+        else:
+            reg_earn = 0.0
+
+        ot_earn = round(ot_hrs * rate * ot_mult, 2) if rate > 0 else 0.0
+        gross = round(reg_earn + ot_earn, 2)
+
+        # Standard Canadian & Quebec Statutory Deductions
+        fed_tax = round(gross * 0.15, 2)        # 15% Federal Bracket
+        ei = round(gross * 0.0166, 2)           # 1.66% EI Rate
+        qc_tax = round(gross * 0.15, 2)         # 15% Quebec Provincial Bracket
+        qpp = round(gross * 0.054, 2)           # 5.4% QPP Base Contribution
+        qpip = round(gross * 0.00494, 2)        # 0.494% QPIP Employee Rate
+
+        tot_ded = round(fed_tax + ei + qc_tax + qpp + qpip, 2)
+        net = round(gross - tot_ded, 2)
+
+        return cls(
+            stub_id=stub_id,
+            run_id=run_id,
+            employee_id=employee_id,
+            pay_period_start=period_start,
+            pay_period_end=period_end,
+            regular_earnings=reg_earn,
+            overtime_earnings=ot_earn,
+            gross_pay=gross,
+            fed_tax_deduction=fed_tax,
+            ei_deduction=ei,
+            qc_tax_deduction=qc_tax,
+            qpp_deduction=qpp,
+            qpip_deduction=qpip,
+            total_deductions=tot_ded,
+            net_pay=net
+        )
+
+    @classmethod
+    def from_row(cls, row: dict) -> "PayStub":
+        """Factory method to construct a PayStub domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            stub_id=row["stub_id"],
+            run_id=row["run_id"],
+            employee_id=row["employee_id"],
+            pay_period_start=row["pay_period_start"],
+            pay_period_end=row["pay_period_end"],
+            regular_earnings=float(row.get("regular_earnings", 0.0) or 0.0),
+            overtime_earnings=float(row.get("overtime_earnings", 0.0) or 0.0),
+            gross_pay=float(row.get("gross_pay", 0.0) or 0.0),
+            fed_tax_deduction=float(row.get("fed_tax_deduction", 0.0) or 0.0),
+            ei_deduction=float(row.get("ei_deduction", 0.0) or 0.0),
+            qc_tax_deduction=float(row.get("qc_tax_deduction", 0.0) or 0.0),
+            qpp_deduction=float(row.get("qpp_deduction", 0.0) or 0.0),
+            qpip_deduction=float(row.get("qpip_deduction", 0.0) or 0.0),
+            total_deductions=float(row.get("total_deductions", 0.0) or 0.0),
+            net_pay=float(row.get("net_pay", 0.0) or 0.0),
+            generated_at=row.get("generated_at")
+        )
+
     def to_dict(self) -> dict:
         return {
             "stub_id": self.stub_id,
@@ -79,6 +153,22 @@ class TaxSlip:
         self.box_qpip_premiums = round(float(box_qpip_premiums), 2)
         self.generated_at = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    @classmethod
+    def from_row(cls, row: dict) -> "TaxSlip":
+        """Factory method to construct a TaxSlip domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            slip_id=row["slip_id"],
+            employee_id=row["employee_id"],
+            tax_year=row["tax_year"],
+            slip_type=row["slip_type"],
+            box_employment_income=float(row.get("box_employment_income", 0.0) or 0.0),
+            box_income_tax_deducted=float(row.get("box_income_tax_deducted", 0.0) or 0.0),
+            box_cpp_qpp_contributions=float(row.get("box_cpp_qpp_contributions", 0.0) or 0.0),
+            box_ei_premiums=float(row.get("box_ei_premiums", 0.0) or 0.0),
+            box_qpip_premiums=float(row.get("box_qpip_premiums", 0.0) or 0.0),
+            generated_at=row.get("generated_at")
+        )
+
     def to_dict(self) -> dict:
         return {
             "slip_id": self.slip_id,
@@ -123,6 +213,29 @@ class PayrollRun:
         self.approval_status = approval_status
         self.approved_at = approved_at
         self.rejection_reason = rejection_reason
+
+    @classmethod
+    def from_row(cls, row: dict) -> "PayrollRun":
+        """Factory method to construct a PayrollRun domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            run_id=row["run_id"],
+            client_id=row["client_id"],
+            period_start=row["period_start"],
+            period_end=row["period_end"],
+            run_date=row.get("run_date"),
+            total_gross=float(row.get("total_gross", 0.0) or 0.0),
+            total_deductions=float(row.get("total_deductions", 0.0) or 0.0),
+            total_net=float(row.get("total_net", 0.0) or 0.0),
+            approval_status=row.get("approval_status", "Draft"),
+            approved_at=row.get("approved_at"),
+            rejection_reason=row.get("rejection_reason")
+        )
+
+    def add_stub(self, stub: PayStub):
+        """Accumulates an itemized pay stub into run totals (Chapter 7: Method Cohesion)."""
+        self.total_gross = round(self.total_gross + stub.gross_pay, 2)
+        self.total_deductions = round(self.total_deductions + stub.total_deductions, 2)
+        self.total_net = round(self.total_net + stub.net_pay, 2)
 
     def submit_for_approval(self) -> bool:
         """Transitions pay run to Pending_Approval for client manager review."""

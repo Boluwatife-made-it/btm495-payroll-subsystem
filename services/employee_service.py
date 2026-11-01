@@ -27,25 +27,12 @@ class EmployeeService:
         rows = db.query_all(sql, (client_id,))
         results = []
         for r in rows:
-            bank = BankAccount(
-                account_id=0, employee_id=r["employee_id"],
-                institution_number=r["institution_number"] or "000",
-                transit_number=r["transit_number"] or "00000",
-                account_number=r["account_number"] or "0000",
-                account_type=r["account_type"] or "Checking"
-            )
-            job = JobInformation(
-                job_id=0, employee_id=r["employee_id"],
-                job_title=r["job_title"] or "Staff",
-                department=r["department"] or "General",
-                employment_type=r["employment_type"] or "Full-Time",
-                base_salary=float(r["base_salary"] or 0.0),
-                hourly_rate=float(r["hourly_rate"] or 0.0)
-            )
+            bank = BankAccount.from_row(r)
+            job = JobInformation.from_row(r)
             item = {
                 "employee_id": r["employee_id"],
                 "client_id": r["client_id"],
-                "full_name": f"{r['first_name']} {r['last_name']}",
+                "full_name": Employee.format_full_name(r["first_name"], r["last_name"]),
                 "email": r["email"],
                 "phone": r["phone"],
                 "hire_date": r["hire_date"],
@@ -92,7 +79,7 @@ class EmployeeService:
             (emp_id, pay_frequency)
         )
 
-        return {"employee_id": emp_id, "message": f"Employee {first_name} {last_name} successfully created."}
+        return {"employee_id": emp_id, "message": f"Employee {Employee.format_full_name(first_name, last_name)} successfully created."}
 
     @staticmethod
     def update_employee(employee_id: int, first_name: str = None, last_name: str = None,

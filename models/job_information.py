@@ -26,6 +26,19 @@ class JobInformation:
         self.base_salary = float(base_salary)
         self.hourly_rate = float(hourly_rate)
 
+    @classmethod
+    def from_row(cls, row: dict) -> "JobInformation":
+        """Factory method to construct a JobInformation domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            job_id=int(row.get("job_id", 0) or 0),
+            employee_id=int(row["employee_id"]),
+            job_title=row.get("job_title") or "Staff",
+            department=row.get("department") or "General",
+            employment_type=row.get("employment_type") or "Full-Time",
+            base_salary=float(row.get("base_salary", 0.0) or 0.0),
+            hourly_rate=float(row.get("hourly_rate", 0.0) or 0.0)
+        )
+
     def get_effective_hourly_rate(self) -> float:
         """Returns hourly rate directly, or derives from standard 2,080 annual salary hours."""
         if self.hourly_rate > 0:

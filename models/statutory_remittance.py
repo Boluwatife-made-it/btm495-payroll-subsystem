@@ -33,6 +33,46 @@ class StatutoryRemittance:
             raise ValueError(f"Invalid status '{status}'. Must be one of {self.VALID_STATUSES}")
         self.status = status
 
+    @classmethod
+    def from_payroll_run(cls, run_id: int, period_start: str,
+                          fed_tax: float, ei: float, qc_tax: float,
+                          qpp: float, qpip: float, remittance_id: int = 0) -> "StatutoryRemittance":
+        """
+        Factory method to construct a draft statutory remittance from a payroll run
+        (Chapter 7: Method Cohesion & Knowing and Doing Together).
+        """
+        period_label = str(period_start)[:7]
+        return cls(
+            remittance_id=remittance_id,
+            run_id=run_id,
+            remittance_period=period_label,
+            cra_federal_tax=fed_tax,
+            cra_ei_deduction=ei,
+            rq_provincial_tax=qc_tax,
+            rq_qpp_deduction=qpp,
+            rq_qpip_deduction=qpip,
+            status="Calculated"
+        )
+
+    @classmethod
+    def from_row(cls, row: dict) -> "StatutoryRemittance":
+        """Factory method to construct a StatutoryRemittance domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            remittance_id=row["remittance_id"],
+            run_id=row["run_id"],
+            remittance_period=row["remittance_period"],
+            cra_federal_tax=float(row.get("cra_federal_tax", 0.0) or 0.0),
+            cra_ei_deduction=float(row.get("cra_ei_deduction", 0.0) or 0.0),
+            cra_total_remitted=float(row.get("cra_total_remitted", 0.0) or 0.0),
+            cra_confirmation_number=row.get("cra_confirmation_number"),
+            rq_provincial_tax=float(row.get("rq_provincial_tax", 0.0) or 0.0),
+            rq_qpp_deduction=float(row.get("rq_qpp_deduction", 0.0) or 0.0),
+            rq_qpip_deduction=float(row.get("rq_qpip_deduction", 0.0) or 0.0),
+            rq_total_remitted=float(row.get("rq_total_remitted", 0.0) or 0.0),
+            rq_confirmation_number=row.get("rq_confirmation_number"),
+            status=row.get("status", "Calculated")
+        )
+
     def transmit(self, simulate_timeout: bool = False) -> dict:
         """
         Transmits dual filing to CRA and Revenu Quebec gateways.

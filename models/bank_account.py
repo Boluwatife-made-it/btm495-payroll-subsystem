@@ -18,6 +18,18 @@ class BankAccount:
             raise ValueError(f"Invalid account type '{account_type}'. Must be one of {self.VALID_TYPES}")
         self.account_type = account_type
 
+    @classmethod
+    def from_row(cls, row: dict) -> "BankAccount":
+        """Factory method to construct a BankAccount domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            account_id=int(row.get("account_id", 0) or 0),
+            employee_id=int(row["employee_id"]),
+            institution_number=row.get("institution_number") or "000",
+            transit_number=row.get("transit_number") or "00000",
+            account_number=row.get("account_number") or "0000",
+            account_type=row.get("account_type") or "Checking"
+        )
+
     def validate_routing(self) -> bool:
         """Verifies Canadian banking standard: 3 digits institution + 5 digits transit."""
         return (len(self.institution_number) == 3 and self.institution_number.isdigit() and

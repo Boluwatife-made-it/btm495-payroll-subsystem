@@ -8,30 +8,16 @@ from datetime import datetime
 from database.db import db
 from models.payroll_run import PayrollRun, PayStub, TaxSlip
 from models.timesheet import Timesheet
+from models.employee import Employee
+from models.statutory_remittance import StatutoryRemittance
 
 class PayrollService:
     @staticmethod
     def get_runs_by_client(client_id: int):
-        """Fetches all payroll runs for a client."""
+        """Fetches all payroll runs for a client (Chapter 7: Factoring)."""
         sql = "SELECT * FROM payroll_runs WHERE client_id = ? ORDER BY run_id DESC"
         rows = db.query_all(sql, (client_id,))
-        results = []
-        for r in rows:
-            run = PayrollRun(
-                run_id=r["run_id"],
-                client_id=r["client_id"],
-                period_start=r["period_start"],
-                period_end=r["period_end"],
-                run_date=r["run_date"],
-                total_gross=float(r["total_gross"]),
-                total_deductions=float(r["total_deductions"]),
-                total_net=float(r["total_net"]),
-                approval_status=r["approval_status"],
-                approved_at=r["approved_at"],
-                rejection_reason=r["rejection_reason"]
-            )
-            results.append(run.to_dict())
-        return results
+        return [PayrollRun.from_row(r).to_dict() for r in rows]
 
     @staticmethod
     def calculate_new_run(client_id: int, period_start: str, period_end: str):
@@ -55,111 +41,93 @@ class PayrollService:
         if not records:
             raise ValueError(f"No submitted timesheets found for Client #{client_id} for period {period_start} to {period_end}.")
 
-        run_gross = 0.0
-        run_deductions = 0.0
-        run_net = 0.0
-
+        # 2. Delegate earnings and statutory deductions calculation to domain models (Knowing & Doing Together)
+        run = PayrollRun(
+            run_id=0,
+            client_id=client_id,
+            period_start=period_start,
+            period_end=period_end,
+            approval_status="Pending_Approval"
+        )
+        stubs = []
         fed_tax_total = 0.0
         ei_total = 0.0
         qc_tax_total = 0.0
         qpp_total = 0.0
         qpip_total = 0.0
 
-        stub_data = []
-
         for r in records:
-            reg_hrs = float(r["regular_hours"])
-            ot_hrs = float(r["overtime_hours"])
-            rate = float(r["hourly_rate"])
-            base_sal = float(r.get("base_salary") or 0.0)
-            ot_mult = float(r["overtime_multiplier"])
+            stub = PayStub.calculate(
+                employee_id=r["employee_id"],
+                regular_hours=r["regular_hours"],
+                overtime_hours=r["overtime_hours"],
+                hourly_rate=r["hourly_rate"],
+                base_salary=r.get("base_salary") or 0.0,
+                overtime_multiplier=r.get("overtime_multiplier") or 1.5,
+                period_start=period_start,
+                period_end=period_end
+            )
+            run.add_stub(stub)
+            stubs.append(stub)
 
-            if rate > 0:
-                reg_earn = round(reg_hrs * rate, 2)
-            elif base_sal > 0:
-                # Bi-weekly pay period: annual base salary divided by 26 standard pay periods
-                reg_earn = round(base_sal / 26.0, 2)
-            else:
-                reg_earn = 0.0
+            fed_tax_total = round(fed_tax_total + stub.fed_tax_deduction, 2)
+            ei_total = round(ei_total + stub.ei_deduction, 2)
+            qc_tax_total = round(qc_tax_total + stub.qc_tax_deduction, 2)
+            qpp_total = round(qpp_total + stub.qpp_deduction, 2)
+            qpip_total = round(qpip_total + stub.qpip_deduction, 2)
 
-            ot_earn = round(ot_hrs * rate * ot_mult, 2) if rate > 0 else 0.0
-            gross = round(reg_earn + ot_earn, 2)
-
-            # Standard Canadian & Quebec Statutory Deductions formulas
-            fed_tax = round(gross * 0.15, 2)       # 15% Federal Bracket
-            ei = round(gross * 0.0166, 2)          # 1.66% EI Rate
-            qc_tax = round(gross * 0.15, 2)        # 15% Quebec Provincial Bracket
-            qpp = round(gross * 0.054, 2)          # 5.4% QPP Base Contribution
-            qpip = round(gross * 0.00494, 2)       # 0.494% QPIP Employee Rate
-
-            tot_ded = round(fed_tax + ei + qc_tax + qpp + qpip, 2)
-            net = round(gross - tot_ded, 2)
-
-            run_gross += gross
-            run_deductions += tot_ded
-            run_net += net
-
-            fed_tax_total += fed_tax
-            ei_total += ei
-            qc_tax_total += qc_tax
-            qpp_total += qpp
-            qpip_total += qpip
-
-            stub_data.append({
-                "employee_id": r["employee_id"],
-                "reg_earn": reg_earn,
-                "ot_earn": ot_earn,
-                "gross": gross,
-                "fed_tax": fed_tax,
-                "ei": ei,
-                "qc_tax": qc_tax,
-                "qpp": qpp,
-                "qpip": qpip,
-                "tot_ded": tot_ded,
-                "net": net
-            })
-
-        # Insert Payroll Run (Initial status: Pending_Approval)
+        # 3. Insert Payroll Run (Initial status: Pending_Approval)
         run_id = db.execute(
             """INSERT INTO payroll_runs (client_id, period_start, period_end, total_gross,
                                         total_deductions, total_net, approval_status)
                VALUES (?, ?, ?, ?, ?, ?, 'Pending_Approval')""",
-            (client_id, period_start, period_end, run_gross, run_deductions, run_net)
+            (client_id, period_start, period_end, run.total_gross, run.total_deductions, run.total_net)
         )
+        run.run_id = run_id
 
-        # Insert Pay Stubs
-        for s in stub_data:
+        # 4. Insert Pay Stubs
+        for s in stubs:
+            s.run_id = run_id
             db.execute(
                 """INSERT INTO pay_stubs (run_id, employee_id, pay_period_start, pay_period_end,
                                          regular_earnings, overtime_earnings, gross_pay,
                                          fed_tax_deduction, ei_deduction, qc_tax_deduction,
                                          qpp_deduction, qpip_deduction, total_deductions, net_pay)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (run_id, s["employee_id"], period_start, period_end, s["reg_earn"], s["ot_earn"],
-                 s["gross"], s["fed_tax"], s["ei"], s["qc_tax"], s["qpp"], s["qpip"], s["tot_ded"], s["net"])
+                (run_id, s.employee_id, period_start, period_end, s.regular_earnings, s.overtime_earnings,
+                 s.gross_pay, s.fed_tax_deduction, s.ei_deduction, s.qc_tax_deduction,
+                 s.qpp_deduction, s.qpip_deduction, s.total_deductions, s.net_pay)
             )
 
-        # Insert Associated Statutory Remittance Draft
-        period_label = period_start[:7] # e.g. '2026-10'
-        cra_tot = round(fed_tax_total + ei_total, 2)
-        rq_tot = round(qc_tax_total + qpp_total + qpip_total, 2)
+        # 5. Build and insert Statutory Remittance via Domain Factory (Knowing & Doing Together)
+        remittance = StatutoryRemittance.from_payroll_run(
+            run_id=run_id,
+            period_start=period_start,
+            fed_tax=fed_tax_total,
+            ei=ei_total,
+            qc_tax=qc_tax_total,
+            qpp=qpp_total,
+            qpip=qpip_total
+        )
         db.execute(
             """INSERT INTO statutory_remittances (run_id, remittance_period, cra_federal_tax,
                                                  cra_ei_deduction, cra_total_remitted,
                                                  rq_provincial_tax, rq_qpp_deduction,
                                                  rq_qpip_deduction, rq_total_remitted, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Calculated')""",
-            (run_id, period_label, fed_tax_total, ei_total, cra_tot,
-             qc_tax_total, qpp_total, qpip_total, rq_tot)
+            (run_id, remittance.remittance_period, remittance.cra_federal_tax,
+             remittance.cra_ei_deduction, remittance.cra_total_remitted,
+             remittance.rq_provincial_tax, remittance.rq_qpp_deduction,
+             remittance.rq_qpip_deduction, remittance.rq_total_remitted)
         )
 
         return {
             "run_id": run_id,
             "client_id": client_id,
             "period": f"{period_start} to {period_end}",
-            "total_gross": run_gross,
-            "total_deductions": run_deductions,
-            "total_net": run_net,
+            "total_gross": run.total_gross,
+            "total_deductions": run.total_deductions,
+            "total_net": run.total_net,
             "approval_status": "Pending_Approval",
             "message": "Payroll run calculated and submitted for Client Manager approval."
         }
@@ -175,17 +143,7 @@ class PayrollService:
         if not row:
             raise ValueError(f"Payroll Run #{run_id} not found.")
 
-        run = PayrollRun(
-            run_id=row["run_id"],
-            client_id=row["client_id"],
-            period_start=row["period_start"],
-            period_end=row["period_end"],
-            run_date=row["run_date"],
-            total_gross=row["total_gross"],
-            total_deductions=row["total_deductions"],
-            total_net=row["total_net"],
-            approval_status=row["approval_status"]
-        )
+        run = PayrollRun.from_row(row)
 
         if approve:
             # Load associated timesheets as domain objects to tie transitions to operations (Chapter 7: Balancing Structural & Behavioral Models)
@@ -197,20 +155,7 @@ class PayrollService:
                    AND employee_id IN (SELECT employee_id FROM employees WHERE client_id = ?)""",
                 (run.period_start, run.period_end, run.client_id)
             )
-            timesheet_objs = [
-                Timesheet(
-                    timesheet_id=ts["timesheet_id"],
-                    employee_id=ts["employee_id"],
-                    period_start=ts["period_start"],
-                    period_end=ts["period_end"],
-                    regular_hours=float(ts["regular_hours"]),
-                    overtime_hours=float(ts["overtime_hours"]),
-                    vacation_days=int(ts["vacation_days"]),
-                    sick_days=int(ts["sick_days"]),
-                    status=ts["status"]
-                )
-                for ts in ts_rows
-            ]
+            timesheet_objs = [Timesheet.from_row(ts) for ts in ts_rows]
 
             # 1. Approve domain model and lock associated timesheets via domain operations
             res = run.approve(associated_timesheets=timesheet_objs)
@@ -257,17 +202,7 @@ class PayrollService:
         if not row:
             raise ValueError(f"Payroll Run #{run_id} not found.")
 
-        run = PayrollRun(
-            run_id=row["run_id"],
-            client_id=row["client_id"],
-            period_start=row["period_start"],
-            period_end=row["period_end"],
-            run_date=row["run_date"],
-            total_gross=row["total_gross"],
-            total_deductions=row["total_deductions"],
-            total_net=row["total_net"],
-            approval_status=row["approval_status"]
-        )
+        run = PayrollRun.from_row(row)
         run.submit_for_approval()
         db.execute(
             "UPDATE payroll_runs SET approval_status = 'Pending_Approval', rejection_reason = NULL WHERE run_id = ?",
@@ -291,18 +226,9 @@ class PayrollService:
         rows = db.query_all(sql, (run_id,))
         results = []
         for r in rows:
-            stub = PayStub(
-                stub_id=r["stub_id"], run_id=r["run_id"], employee_id=r["employee_id"],
-                pay_period_start=r["pay_period_start"], pay_period_end=r["pay_period_end"],
-                regular_earnings=r["regular_earnings"], overtime_earnings=r["overtime_earnings"],
-                gross_pay=r["gross_pay"], fed_tax_deduction=r["fed_tax_deduction"],
-                ei_deduction=r["ei_deduction"], qc_tax_deduction=r["qc_tax_deduction"],
-                qpp_deduction=r["qpp_deduction"], qpip_deduction=r["qpip_deduction"],
-                total_deductions=r["total_deductions"], net_pay=r["net_pay"],
-                generated_at=r["generated_at"]
-            )
+            stub = PayStub.from_row(r)
             d = stub.to_dict()
-            d["employee_name"] = f"{r['first_name']} {r['last_name']}"
+            d["employee_name"] = Employee.format_full_name(r["first_name"], r["last_name"])
             results.append(d)
         return results
 
@@ -362,7 +288,7 @@ class PayrollService:
 
         for r in records:
             emp_id = r["employee_id"]
-            emp_name = f"{r['first_name']} {r['last_name']}"
+            emp_name = Employee.format_full_name(r["first_name"], r["last_name"])
             gross = float(r["ytd_gross"])
             fed_tax = float(r["ytd_fed_tax"])
             ei = float(r["ytd_ei"])
@@ -446,17 +372,9 @@ class PayrollService:
         rows = db.query_all(sql, tuple(params))
         results = []
         for r in rows:
-            slip = TaxSlip(
-                slip_id=r["slip_id"], employee_id=r["employee_id"], tax_year=r["tax_year"],
-                slip_type=r["slip_type"], box_employment_income=float(r["box_employment_income"]),
-                box_income_tax_deducted=float(r["box_income_tax_deducted"]),
-                box_cpp_qpp_contributions=float(r["box_cpp_qpp_contributions"]),
-                box_ei_premiums=float(r["box_ei_premiums"]),
-                box_qpip_premiums=float(r["box_qpip_premiums"]),
-                generated_at=r["generated_at"]
-            )
+            slip = TaxSlip.from_row(r)
             d = slip.to_dict()
-            d["employee_name"] = f"{r['first_name']} {r['last_name']}"
+            d["employee_name"] = Employee.format_full_name(r["first_name"], r["last_name"])
             d["client_id"] = r["client_id"]
             results.append(d)
         return results

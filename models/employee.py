@@ -21,9 +21,28 @@ class Employee:
             raise ValueError(f"Invalid status '{status}'. Must be one of {self.VALID_STATUSES}")
         self.status = status
 
+    @staticmethod
+    def format_full_name(first_name: str, last_name: str) -> str:
+        """Utility to format full name consistently across all tiers (Chapter 5: Class Cohesion)."""
+        return f"{first_name} {last_name}".strip()
+
     def get_full_name(self) -> str:
         """Returns the formatted full name of the employee."""
-        return f"{self.first_name} {self.last_name}"
+        return self.format_full_name(self.first_name, self.last_name)
+
+    @classmethod
+    def from_row(cls, row: dict) -> "Employee":
+        """Factory method to construct an Employee domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            employee_id=row["employee_id"],
+            client_id=row["client_id"],
+            first_name=row["first_name"],
+            last_name=row["last_name"],
+            email=row["email"],
+            phone=row["phone"],
+            hire_date=row["hire_date"],
+            status=row.get("status", "Active")
+        )
 
     def update_status(self, new_status: str) -> bool:
         """Updates employment status with validation."""

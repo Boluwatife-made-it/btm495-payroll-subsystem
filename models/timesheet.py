@@ -28,6 +28,21 @@ class Timesheet:
             raise ValueError(f"Invalid status '{status}'. Must be one of {self.VALID_STATUSES}")
         self.status = status
 
+    @classmethod
+    def from_row(cls, row: dict) -> "Timesheet":
+        """Factory method to construct a Timesheet domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            timesheet_id=row["timesheet_id"],
+            employee_id=row["employee_id"],
+            period_start=row["period_start"],
+            period_end=row["period_end"],
+            regular_hours=float(row.get("regular_hours", 0.0) or 0.0),
+            overtime_hours=float(row.get("overtime_hours", 0.0) or 0.0),
+            vacation_days=int(row.get("vacation_days", 0) or 0),
+            sick_days=int(row.get("sick_days", 0) or 0),
+            status=row.get("status", "Draft")
+        )
+
     def calculate_total_hours(self) -> float:
         """Returns total hours logged."""
         return round(self.regular_hours + self.overtime_hours, 2)

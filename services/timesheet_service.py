@@ -5,6 +5,7 @@ Manages hours logging, submission, and post-approval lockout enforcement.
 
 from database.db import db
 from models.timesheet import Timesheet
+from models.employee import Employee
 
 class TimesheetService:
     @staticmethod
@@ -26,19 +27,8 @@ class TimesheetService:
         
         results = []
         for r in rows:
-            ts = Timesheet(
-                timesheet_id=r["timesheet_id"],
-                employee_id=r["employee_id"],
-                period_start=r["period_start"],
-                period_end=r["period_end"],
-                regular_hours=float(r["regular_hours"]),
-                overtime_hours=float(r["overtime_hours"]),
-                vacation_days=int(r["vacation_days"]),
-                sick_days=int(r["sick_days"]),
-                status=r["status"]
-            )
-            d = ts.to_dict()
-            d["employee_name"] = f"{r['first_name']} {r['last_name']}"
+            d = Timesheet.from_row(r).to_dict()
+            d["employee_name"] = Employee.format_full_name(r["first_name"], r["last_name"])
             results.append(d)
         return results
 
@@ -49,12 +39,7 @@ class TimesheetService:
         if not row:
             raise ValueError(f"Timesheet #{timesheet_id} not found.")
 
-        ts = Timesheet(
-            timesheet_id=row["timesheet_id"], employee_id=row["employee_id"],
-            period_start=row["period_start"], period_end=row["period_end"],
-            regular_hours=row["regular_hours"], overtime_hours=row["overtime_hours"],
-            status=row["status"]
-        )
+        ts = Timesheet.from_row(row)
         ts.submit()
 
         db.execute("UPDATE timesheets SET status = 'Submitted' WHERE timesheet_id = ?", (timesheet_id,))
@@ -67,12 +52,7 @@ class TimesheetService:
         if not row:
             raise ValueError(f"Timesheet #{timesheet_id} not found.")
 
-        ts = Timesheet(
-            timesheet_id=row["timesheet_id"], employee_id=row["employee_id"],
-            period_start=row["period_start"], period_end=row["period_end"],
-            regular_hours=row["regular_hours"], overtime_hours=row["overtime_hours"],
-            status=row["status"]
-        )
+        ts = Timesheet.from_row(row)
 
         # Enforce domain model lockout check
         ts.update_hours(regular_hours, overtime_hours)
