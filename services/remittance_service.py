@@ -2,67 +2,38 @@
 Remittance Service (Use Case 4: Submit Statutory Remittances)
 Manages Quebec Dual-Remittance calculations and Tax Authority Gateway transmissions.
 Addresses Alternative Flow 7a (Government Rejection / Gateway Timeout).
+Coordinates with RemittanceRepository for Data Access Management (Chapter 7 C.5).
 """
 
-from database.db import db
 from models.statutory_remittance import StatutoryRemittance
+from repositories.remittance_repository import RemittanceRepository
 
 class RemittanceService:
     @staticmethod
     def get_remittance_by_run(run_id: int):
         """Fetches remittance details for a specific payroll run."""
-        row = db.query_one("SELECT * FROM statutory_remittances WHERE run_id = ?", (run_id,))
+        row = RemittanceRepository.get_by_run_id(run_id)
         if not row:
             return None
-        remittance = StatutoryRemittance(
-            remittance_id=row["remittance_id"],
-            run_id=row["run_id"],
-            remittance_period=row["remittance_period"],
-            cra_federal_tax=row["cra_federal_tax"],
-            cra_ei_deduction=row["cra_ei_deduction"],
-            cra_total_remitted=row["cra_total_remitted"],
-            cra_confirmation_number=row["cra_confirmation_number"],
-            rq_provincial_tax=row["rq_provincial_tax"],
-            rq_qpp_deduction=row["rq_qpp_deduction"],
-            rq_qpip_deduction=row["rq_qpip_deduction"],
-            rq_total_remitted=row["rq_total_remitted"],
-            rq_confirmation_number=row["rq_confirmation_number"],
-            status=row["status"]
-        )
+        remittance = StatutoryRemittance.from_row(row)
         return remittance.to_dict()
 
     @staticmethod
     def transmit_remittance(remittance_id: int, simulate_timeout: bool = False):
         """Transmits dual remittance to CRA and RQ gateways with Alternate Flow 7a handling."""
-        row = db.query_one("SELECT * FROM statutory_remittances WHERE remittance_id = ?", (remittance_id,))
+        row = RemittanceRepository.get_by_id(remittance_id)
         if not row:
             raise ValueError(f"Statutory Remittance #{remittance_id} not found.")
 
-        remittance = StatutoryRemittance(
-            remittance_id=row["remittance_id"],
-            run_id=row["run_id"],
-            remittance_period=row["remittance_period"],
-            cra_federal_tax=row["cra_federal_tax"],
-            cra_ei_deduction=row["cra_ei_deduction"],
-            cra_total_remitted=row["cra_total_remitted"],
-            cra_confirmation_number=row["cra_confirmation_number"],
-            rq_provincial_tax=row["rq_provincial_tax"],
-            rq_qpp_deduction=row["rq_qpp_deduction"],
-            rq_qpip_deduction=row["rq_qpip_deduction"],
-            rq_total_remitted=row["rq_total_remitted"],
-            rq_confirmation_number=row["rq_confirmation_number"],
-            status=row["status"]
-        )
-
+        remittance = StatutoryRemittance.from_row(row)
         result = remittance.transmit(simulate_timeout=simulate_timeout)
 
-        # Update database with resulting status and confirmation tokens
-        db.execute(
-            """UPDATE statutory_remittances
-               SET status = ?, cra_confirmation_number = ?, rq_confirmation_number = ?
-               WHERE remittance_id = ?""",
-            (remittance.status, remittance.cra_confirmation_number,
-             remittance.rq_confirmation_number, remittance_id)
+        # Update database with resulting status and confirmation tokens via repository
+        RemittanceRepository.update_transmission(
+            remittance_id=remittance_id,
+            status=remittance.status,
+            cra_confirmation=remittance.cra_confirmation_number,
+            rq_confirmation=remittance.rq_confirmation_number
         )
 
         return result

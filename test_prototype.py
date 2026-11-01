@@ -12,6 +12,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from database.db import db
 from models.timesheet import Timesheet
 from models.payroll_run import PayrollRun
+from models.employee import Employee
+from models.bank_account import BankAccount
+from models.job_information import JobInformation
+from models.compensation_structure import CompensationStructure
+from repositories.client_repository import ClientRepository
+from repositories.employee_repository import EmployeeRepository
+from repositories.timesheet_repository import TimesheetRepository
+from repositories.payroll_repository import PayrollRepository
+from repositories.compensation_repository import CompensationRepository
+from repositories.remittance_repository import RemittanceRepository
 from services.employee_service import EmployeeService
 from services.timesheet_service import TimesheetService
 from services.compensation_service import CompensationService
@@ -328,6 +338,71 @@ def run_tests():
     except ValueError as e:
         assert "Cannot reject payroll run" in str(e)
         print(f"  --> PASS: PayrollRun transition guard blocked reject() from 'Draft': '{e}'")
+
+    # ------------------------------------------------------------------
+    # TEST 8: Data Access Management (DAM) Repositories & Domain Object Onboarding (Chapter 7)
+    # ------------------------------------------------------------------
+    print("\n[TEST 8] Verifying Data Access Management (DAM) Repositories & Domain Object Passing...")
+
+    # 1. Verify ClientRepository replaces raw SQL in Presentation Tier
+    clients = ClientRepository.get_all()
+    assert len(clients) >= 2
+    assert any(c["client_name"] == "Apex Logistics Inc." for c in clients)
+    print(f"  --> PASS: ClientRepository returned {len(clients)} client aggregates for presentation layer.")
+
+    # 2. Verify Chapter 7 E.1: Pass Domain Objects, Not Scalar Attributes
+    emp_entity = Employee(
+        employee_id=0,
+        client_id=101,
+        first_name="Lucas",
+        last_name="Dubois",
+        email="l.dubois@apexlogistics.ca",
+        phone="514-555-7777",
+        hire_date="2026-11-01",
+        status="Active"
+    )
+    bank_entity = BankAccount(
+        account_id=0,
+        employee_id=0,
+        institution_number="003",
+        transit_number="54321",
+        account_number="7654321",
+        account_type="Checking"
+    )
+    job_entity = JobInformation(
+        job_id=0,
+        employee_id=0,
+        job_title="Senior Fleet Coordinator",
+        department="Logistics",
+        employment_type="Full-Time",
+        base_salary=82000.0,
+        hourly_rate=0.0
+    )
+    comp_entity = CompensationStructure(
+        structure_id=0,
+        employee_id=0,
+        pay_frequency="Bi-Weekly",
+        overtime_multiplier=1.50
+    )
+
+    onboard_res = EmployeeService.create_employee(
+        employee=emp_entity,
+        bank_account=bank_entity,
+        job_information=job_entity,
+        compensation=comp_entity
+    )
+    assert onboard_res["employee_id"] is not None
+    assert "Lucas Dubois" in onboard_res["message"]
+    print(f"  --> PASS: Chapter 7 E.1 Verified: Onboarded employee #{onboard_res['employee_id']} by passing 4 domain objects directly.")
+
+    # 3. Verify Repository Layer isolation for Timesheets, Runs, and Remittances
+    lucas_ts = TimesheetRepository.get_timesheets_for_client(client_id=101)
+    assert len(lucas_ts) >= 3
+    print(f"  --> PASS: TimesheetRepository encapsulated SQL queries ({len(lucas_ts)} timesheets returned).")
+
+    runs = PayrollRepository.get_runs_by_client(client_id=101)
+    assert len(runs) >= 1
+    print(f"  --> PASS: PayrollRepository encapsulated SQL queries ({len(runs)} pay runs returned).")
 
     print("\n==================================================================")
     print(" ALL INTEGRATION TESTS PASSED: 100% SUCCESS")

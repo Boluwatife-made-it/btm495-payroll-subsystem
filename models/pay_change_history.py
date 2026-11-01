@@ -17,6 +17,19 @@ class PayChangeHistory:
         self.change_reason = str(change_reason)
         self.authorized_by = str(authorized_by)
 
+    @classmethod
+    def from_row(cls, row: dict) -> "PayChangeHistory":
+        """Factory method to construct a PayChangeHistory domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            history_id=int(row["history_id"]),
+            employee_id=int(row["employee_id"]),
+            previous_rate=float(row.get("previous_rate", 0.0) or 0.0),
+            new_rate=float(row.get("new_rate", 0.0) or 0.0),
+            change_reason=str(row.get("change_reason", "")),
+            authorized_by=str(row.get("authorized_by", "")),
+            change_date=row.get("change_date")
+        )
+
     def get_audit_summary(self) -> str:
         """Formats audit string suitable for compliance badges."""
         return (f"Rate updated from {self.previous_rate:.2f} CAD to {self.new_rate:.2f} CAD "

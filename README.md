@@ -42,16 +42,19 @@ We built the prototype using a layered architecture to keep presentation, busine
 │                       APPLICATION SERVICE LAYER                        │
 │   EmployeeService  ·  TimesheetService  ·  CompensationService        │
 │          RemittanceService       ·       PayrollService                │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Object-Oriented Operations
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                      DOMAIN CLASS MODEL LAYER (9)                      │
-│   Client  ·  Employee  ·  BankAccount  ·  JobInformation  ·  Timesheet │
-│   CompensationStructure  ·  PayChangeHistory  ·  StatutoryRemittance  │
-│                   PayrollRun (PayStub, TaxSlip)                        │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ SQL DDL / DML
-┌───────────────────────────────────▼────────────────────────────────────┐
+└───────────────────┬───────────────────────────────────┬────────────────┘
+                    │ Coordinates Business Rules        │ Queries / Persists
+┌───────────────────▼────────────────────┐ ┌────────────▼────────────────┐
+│      DOMAIN CLASS MODEL LAYER (9)      │ │  DATA ACCESS MANAGEMENT (DAM)│
+│  Client · Employee · BankAccount       │ │  ClientRepository            │
+│  JobInformation · Timesheet            │ │  EmployeeRepository          │
+│  CompensationStructure                 │ │  TimesheetRepository         │
+│  PayChangeHistory                      │ │  CompensationRepository      │
+│  StatutoryRemittance                   │ │  RemittanceRepository        │
+│  PayrollRun (PayStub, TaxSlip)         │ │  PayrollRepository           │
+└───────────────────┬────────────────────┘ └────────────┬────────────────┘
+                    │ Hydrates Domain Entities          │ Executes SQL
+┌───────────────────▼───────────────────────────────────▼────────────────┐
 │                    DUAL-ENGINE PERSISTENCE LAYER                       │
 │  Primary: Cloud Supabase PostgreSQL (Managed Cloud Database)           │
 │  Fallback: Local SQLite Engine (payroll.db - Auto-initialized)         │
@@ -228,6 +231,14 @@ btm495-payroll-subsystem/
 │   ├── pay_change_history.py   ──▶ UC3: PayChangeHistory domain class
 │   ├── statutory_remittance.py ──▶ UC4: StatutoryRemittance domain class
 │   └── payroll_run.py          ──▶ UC5: PayrollRun, PayStub, and TaxSlip domain classes
+├── repositories/
+│   ├── __init__.py             ──▶ Exports Data Access Management (DAM) classes
+│   ├── client_repository.py    ──▶ Client SQL persistence
+│   ├── employee_repository.py  ──▶ Employee, Bank, and Job aggregate persistence
+│   ├── timesheet_repository.py ──▶ Timesheet queries and lifecycle updates
+│   ├── compensation_repository.py ──▶ SOX audit trail and rate persistence
+│   ├── remittance_repository.py──▶ Dual-remittance gateway persistence
+│   └── payroll_repository.py   ──▶ Pay runs, stubs, and tax slips persistence
 └── services/
     ├── __init__.py             ──▶ Exports service orchestrators
     ├── employee_service.py     ──▶ UC1 Service
@@ -268,3 +279,14 @@ To ensure our implementation aligns with textbook software engineering principle
 #### Automated Verification
 - **Test Suite:** `test_prototype.py` verified across all 7 test suites, confirming full backward compatibility and zero regressions across all 5 use cases.
 - **Result:** 7 integration test suites passing with 100% success rate.
+
+### Sprint Update: 2026-11-01 16:55 EDT — Data Access Management (DAM) Layer & Domain Object Parameter Refactor (Phase 2: Architecture & Coupling)
+
+| Area / Component | Finding / Violation | BTM 495 Principle | Architectural Fix | Why We Made This Change |
+|---|---|---|---|---|
+| `app.py:78` & all `services/*.py` | Services and HTTP route handlers wrote raw SQL queries directly, bypassing data management separation. | **Chapter 7 (Moving on to Design) — Layer Separation & Data Access Management (DAM) Classes:** Presentation tier interacts with services; services coordinate business logic; DAM/Repository classes encapsulate SQL and return domain objects. | Created 6 dedicated repository classes under `repositories/` (`ClientRepository`, `EmployeeRepository`, `TimesheetRepository`, `CompensationRepository`, `RemittanceRepository`, `PayrollRepository`). Eliminated direct SQL calls from `app.py` and application services. | Enforces strict multi-tier separation. Changes to database queries or schema engines can now be made entirely within the data layer without impacting business rules or REST controllers. |
+| `services/employee_service.py` & `app.py:149-165` | Long 15-scalar parameter list across 4 distinct classes (`Employee`, `BankAccount`, `JobInformation`, `CompensationStructure`), with business defaults defined in the HTTP routing layer. | **Chapter 7 (Moving on to Design) — Coupling & Method Signatures (Pass the Object, Not its Attributes):** Methods should accept domain objects or cohesive parameter bundles rather than long lists of primitive scalar attributes. | Refactored `EmployeeService.create_employee()` to accept domain objects directly (`employee`, `bank_account`, `job_information`, `compensation`). Relocated business defaults from `app.py` into the service/domain layer. | Reduces data coupling, prevents signature explosion, and ensures business defaults remain encapsulated within the domain tier rather than leaking into HTTP handlers. |
+
+#### Automated Verification
+- **Test Suite:** `test_prototype.py` updated with TEST 8 (DAM repository encapsulation and 4-object domain passing).
+- **Result:** All 8 integration test suites passing with 100% success rate.

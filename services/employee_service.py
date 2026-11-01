@@ -1,30 +1,20 @@
 """
 Employee Service (Use Case 1: Manage Employee Information)
 Handles client employee onboarding, profile retrieval, and tenant-scoped lookups.
+Coordinates with EmployeeRepository for Data Access Management (Chapter 7 C.5).
 """
 
-from database.db import db
 from models.employee import Employee
 from models.bank_account import BankAccount
 from models.job_information import JobInformation
 from models.compensation_structure import CompensationStructure
+from repositories.employee_repository import EmployeeRepository
 
 class EmployeeService:
     @staticmethod
     def get_employees_by_client(client_id: int):
         """Fetches all employees for a client, enforcing tenant isolation."""
-        sql = """
-            SELECT e.*, b.institution_number, b.transit_number, b.account_number, b.account_type,
-                   j.job_title, j.department, j.employment_type, j.hourly_rate, j.base_salary,
-                   c.pay_frequency, c.overtime_multiplier
-            FROM employees e
-            LEFT JOIN bank_accounts b ON e.employee_id = b.employee_id
-            LEFT JOIN job_information j ON e.employee_id = j.employee_id
-            LEFT JOIN compensation_structures c ON e.employee_id = c.employee_id
-            WHERE e.client_id = ?
-            ORDER BY e.employee_id ASC
-        """
-        rows = db.query_all(sql, (client_id,))
+        rows = EmployeeRepository.get_employees_by_client(client_id)
         results = []
         for r in rows:
             bank = BankAccount.from_row(r)
@@ -44,42 +34,63 @@ class EmployeeService:
         return results
 
     @staticmethod
-    def create_employee(client_id: int, first_name: str, last_name: str, email: str,
-                        phone: str, hire_date: str, institution_number: str,
-                        transit_number: str, account_number: str, account_type: str,
-                        job_title: str, department: str, employment_type: str,
-                        hourly_rate: float, base_salary: float = 0.0,
-                        pay_frequency: str = "Bi-Weekly"):
-        """Creates an employee along with their bank details and job profile."""
-        # 1. Insert employee
-        emp_id = db.execute(
-            """INSERT INTO employees (client_id, first_name, last_name, email, phone, hire_date, status)
-               VALUES (?, ?, ?, ?, ?, ?, 'Active')""",
-            (client_id, first_name, last_name, email, phone, hire_date)
-        )
+    def create_employee(employee: Employee = None, bank_account: BankAccount = None,
+                        job_information: JobInformation = None,
+                        compensation: CompensationStructure = None, **kwargs):
+        """
+        Creates an employee along with their bank details, job profile, and compensation structure.
+        Implements Chapter 7 E.1: 'Pass the object, not its attributes'.
+        Maintains business defaults in the domain layer and accepts kwargs for flexible onboarding.
+        """
+        # 1. Hydrate Employee domain object
+        if employee is None:
+            client_id = int(kwargs.get("client_id", 101))
+            first_name = kwargs.get("first_name", "")
+            last_name = kwargs.get("last_name", "")
+            email = kwargs.get("email", "")
+            phone = kwargs.get("phone", "514-555-0100")
+            hire_date = kwargs.get("hire_date", "2026-10-01")
+            status = kwargs.get("status", "Active")
+            employee = Employee(
+                employee_id=0, client_id=client_id, first_name=first_name,
+                last_name=last_name, email=email, phone=phone, hire_date=hire_date, status=status
+            )
 
-        # 2. Insert bank account
-        db.execute(
-            """INSERT INTO bank_accounts (employee_id, institution_number, transit_number, account_number, account_type)
-               VALUES (?, ?, ?, ?, ?)""",
-            (emp_id, institution_number, transit_number, account_number, account_type)
-        )
+        # 2. Hydrate BankAccount domain object with domain defaults
+        if bank_account is None:
+            bank_account = BankAccount(
+                account_id=0, employee_id=employee.employee_id,
+                institution_number=kwargs.get("institution_number", "001"),
+                transit_number=kwargs.get("transit_number", "10234"),
+                account_number=kwargs.get("account_number", "1234567"),
+                account_type=kwargs.get("account_type", "Checking")
+            )
 
-        # 3. Insert job information
-        db.execute(
-            """INSERT INTO job_information (employee_id, job_title, department, employment_type, base_salary, hourly_rate)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (emp_id, job_title, department, employment_type, base_salary, hourly_rate)
-        )
+        # 3. Hydrate JobInformation domain object with domain defaults
+        if job_information is None:
+            job_information = JobInformation(
+                job_id=0, employee_id=employee.employee_id,
+                job_title=kwargs.get("job_title", "Staff Associate"),
+                department=kwargs.get("department", "Operations"),
+                employment_type=kwargs.get("employment_type", "Full-Time"),
+                hourly_rate=float(kwargs.get("hourly_rate", 25.0)),
+                base_salary=float(kwargs.get("base_salary", 0.0))
+            )
 
-        # 4. Insert compensation structure
-        db.execute(
-            """INSERT INTO compensation_structures (employee_id, pay_frequency, overtime_multiplier, bonus_rate, commission_rate)
-               VALUES (?, ?, 1.50, 0.00, 0.00)""",
-            (emp_id, pay_frequency)
-        )
+        # 4. Hydrate CompensationStructure domain object with domain defaults
+        if compensation is None:
+            compensation = CompensationStructure(
+                structure_id=0, employee_id=employee.employee_id,
+                pay_frequency=kwargs.get("pay_frequency", "Bi-Weekly"),
+                overtime_multiplier=float(kwargs.get("overtime_multiplier", 1.50)),
+                bonus_rate=float(kwargs.get("bonus_rate", 0.0)),
+                commission_rate=float(kwargs.get("commission_rate", 0.0))
+            )
 
-        return {"employee_id": emp_id, "message": f"Employee {Employee.format_full_name(first_name, last_name)} successfully created."}
+        # Persist through Data Access Management (DAM) Layer
+        emp_id = EmployeeRepository.save_employee_bundle(employee, bank_account, job_information, compensation)
+        full_name = Employee.format_full_name(employee.first_name, employee.last_name)
+        return {"employee_id": emp_id, "message": f"Employee {full_name} successfully created."}
 
     @staticmethod
     def update_employee(employee_id: int, first_name: str = None, last_name: str = None,
@@ -92,56 +103,27 @@ class EmployeeService:
         Updates an existing employee record, bank coordinates, and job placement.
         Directly implements Use Case 1 SubFlow 3S.2 (Edit Employee Record).
         """
-        emp = db.query_one("SELECT * FROM employees WHERE employee_id = ?", (employee_id,))
+        emp = EmployeeRepository.get_by_id(employee_id)
         if not emp:
             raise ValueError(f"Employee #{employee_id} not found.")
 
-        # 1. Update personal details
         fn = first_name if first_name is not None else emp["first_name"]
         ln = last_name if last_name is not None else emp["last_name"]
         em = email if email is not None else emp["email"]
         ph = phone if phone is not None else emp["phone"]
         st = status if status is not None else emp["status"]
 
-        db.execute(
-            """UPDATE employees
-               SET first_name = ?, last_name = ?, email = ?, phone = ?, status = ?
-               WHERE employee_id = ?""",
-            (fn, ln, em, ph, st, employee_id)
+        EmployeeRepository.update_employee_profile(
+            employee_id=employee_id, first_name=fn, last_name=ln, email=em, phone=ph, status=st,
+            institution_number=institution_number, transit_number=transit_number,
+            account_number=account_number, account_type=account_type,
+            job_title=job_title, department=department, employment_type=employment_type
         )
 
-        # 2. Update banking details if provided
-        if any(v is not None for v in (institution_number, transit_number, account_number, account_type)):
-            bank = db.query_one("SELECT * FROM bank_accounts WHERE employee_id = ?", (employee_id,))
-            if bank:
-                inst = institution_number if institution_number is not None else bank["institution_number"]
-                trn = transit_number if transit_number is not None else bank["transit_number"]
-                acc = account_number if account_number is not None else bank["account_number"]
-                at = account_type if account_type is not None else bank["account_type"]
-                db.execute(
-                    """UPDATE bank_accounts
-                       SET institution_number = ?, transit_number = ?, account_number = ?, account_type = ?
-                       WHERE employee_id = ?""",
-                    (inst, trn, acc, at, employee_id)
-                )
-
-        # 3. Update job details if provided
-        if any(v is not None for v in (job_title, department, employment_type)):
-            job = db.query_one("SELECT * FROM job_information WHERE employee_id = ?", (employee_id,))
-            if job:
-                jt = job_title if job_title is not None else job["job_title"]
-                dep = department if department is not None else job["department"]
-                et = employment_type if employment_type is not None else job["employment_type"]
-                db.execute(
-                    """UPDATE job_information
-                       SET job_title = ?, department = ?, employment_type = ?
-                       WHERE employee_id = ?""",
-                    (jt, dep, et, employee_id)
-                )
-
+        full_name = Employee.format_full_name(fn, ln)
         return {
             "employee_id": employee_id,
-            "full_name": f"{fn} {ln}",
+            "full_name": full_name,
             "status": st,
-            "message": f"Employee #{employee_id} ({fn} {ln}) successfully updated."
+            "message": f"Employee #{employee_id} ({full_name}) successfully updated."
         }

@@ -14,6 +14,17 @@ class Client:
         self.contact_email = str(contact_email)
         self.created_at = created_at or datetime.now().isoformat()
 
+    @classmethod
+    def from_row(cls, row: dict) -> "Client":
+        """Factory method to construct a Client domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            client_id=int(row["client_id"]),
+            client_name=str(row["client_name"]),
+            company_address=str(row.get("company_address", "")),
+            contact_email=str(row.get("contact_email", "")),
+            created_at=row.get("created_at")
+        )
+
     def validate_contact(self) -> bool:
         """Validates company contact email format."""
         return "@" in self.contact_email and "." in self.contact_email

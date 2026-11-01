@@ -20,6 +20,18 @@ class CompensationStructure:
         self.bonus_rate = float(bonus_rate)
         self.commission_rate = float(commission_rate)
 
+    @classmethod
+    def from_row(cls, row: dict) -> "CompensationStructure":
+        """Factory method to construct a CompensationStructure domain object from a database row (Chapter 7: Factoring)."""
+        return cls(
+            structure_id=int(row.get("structure_id", 0) or 0),
+            employee_id=int(row["employee_id"]),
+            pay_frequency=row.get("pay_frequency") or "Bi-Weekly",
+            overtime_multiplier=float(row.get("overtime_multiplier", 1.50) or 1.50),
+            bonus_rate=float(row.get("bonus_rate", 0.0) or 0.0),
+            commission_rate=float(row.get("commission_rate", 0.0) or 0.0)
+        )
+
     def calculate_gross(self, regular_hours: float, overtime_hours: float, hourly_rate: float) -> dict:
         """Calculates itemized regular earnings, overtime premium, and total gross pay."""
         reg_earnings = round(float(regular_hours) * float(hourly_rate), 2)

@@ -16,7 +16,7 @@ from threading import Timer
 # Add project root to Python module path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from database.db import db
+from repositories.client_repository import ClientRepository
 from services.employee_service import EmployeeService
 from services.timesheet_service import TimesheetService
 from services.compensation_service import CompensationService
@@ -75,7 +75,7 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
 
             # 2. Multi-Tenant Clients
             elif path == "/api/clients":
-                clients = db.query_all("SELECT * FROM clients ORDER BY client_id ASC")
+                clients = ClientRepository.get_all()
                 self._set_headers(200)
                 self.wfile.write(json.dumps({"clients": clients}).encode("utf-8"))
 
@@ -144,25 +144,9 @@ class PayrollAPIHandler(BaseHTTPRequestHandler):
         body = self._parse_body()
 
         try:
-            # 1. UC1: Onboard Employee
+            # 1. UC1: Onboard Employee (Chapter 7 E.1: Pass Object / Cohesive Payload)
             if path == "/api/employees":
-                res = EmployeeService.create_employee(
-                    client_id=int(body.get("client_id", 101)),
-                    first_name=body["first_name"],
-                    last_name=body["last_name"],
-                    email=body["email"],
-                    phone=body.get("phone", "514-555-0100"),
-                    hire_date=body.get("hire_date", "2026-10-01"),
-                    institution_number=body.get("institution_number", "001"),
-                    transit_number=body.get("transit_number", "10234"),
-                    account_number=body.get("account_number", "1234567"),
-                    account_type=body.get("account_type", "Checking"),
-                    job_title=body.get("job_title", "Staff Associate"),
-                    department=body.get("department", "Operations"),
-                    employment_type=body.get("employment_type", "Full-Time"),
-                    hourly_rate=float(body.get("hourly_rate", 25.0)),
-                    base_salary=float(body.get("base_salary", 0.0))
-                )
+                res = EmployeeService.create_employee(**body)
                 self._set_headers(201)
                 self.wfile.write(json.dumps(res).encode("utf-8"))
 
