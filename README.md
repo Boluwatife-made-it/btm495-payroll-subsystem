@@ -197,6 +197,7 @@ The API provides JSON endpoints for frontend integration and external services:
 | `POST` | `/api/payroll/calculate` | UC5 | Calculates gross-to-net pay run in `Pending_Approval` |
 | `POST` | `/api/payroll/approve` | UC5 | Approves run and locks all associated timesheets |
 | `POST` | `/api/payroll/reject` | UC5 | Rejects run and generates technician alert banner |
+| `POST` | `/api/payroll/resubmit` | UC5 | Resubmits rejected run back to `Pending_Approval` |
 | `GET` | `/api/payroll/stubs?run_id=1` | UC5 | Returns itemized employee pay stubs |
 | `GET` | `/api/payroll/tax-slips?client_id=101&tax_year=2026` | UC5 | Returns annual T4 and Releve 1 tax slips |
 | `POST` | `/api/payroll/tax-slips/generate` | UC5 | Verifies finalized pay runs and generates T4 and Releve 1 slips |
@@ -235,3 +236,22 @@ btm495-payroll-subsystem/
     ├── remittance_service.py   ──▶ UC4 Service
     └── payroll_service.py      ──▶ UC5 Service
 ```
+
+---
+
+## 8. Continuous Refactoring & Design Audit Log
+
+To ensure our implementation aligns with textbook software engineering principles and the behavioral/structural modeling rules taught in BTM 495 (Chapters 6 and 7), our team conducted a comprehensive design audit and executed the following refactors:
+
+### Sprint Update: 2026-11-01 15:30 EDT — Domain Model Integrity & State Machine Refactor (Play 1)
+
+| Area / Component | Finding / Violation | BTM 495 Principle | Architectural Fix | Why We Made This Change |
+|---|---|---|---|---|
+| `services/payroll_service.py` | Draft timesheets were queried and processed into gross pay calculations. | **L06 E.2 Guard Conditions:** Guard conditions must govern transitions and data entry into subsequent lifecycle states. | Added `AND t.status = 'Submitted'` filter to `calculate_new_run()`. Added automated test verifying `Draft` timesheets throw `ValueError`. | Prevents unreviewed or incomplete hours from generating unauthorized payouts or CRA/RQ remittance liabilities. |
+| `services/payroll_service.py` | Salaried staff pay computed to 0 CAD because calculation only evaluated `hourly_rate * hours`. | **L07 B.2 Traceability Gap & Model Balancing:** Analysis attributes (`base_salary`) must trace into concrete design operations. | Implemented bi-weekly annualized pay computation `round(base_salary / 26.0, 2)` when `hourly_rate == 0.0`. | Ensures management and salaried professionals are compensated correctly based on annual compensation terms. |
+| `models/payroll_run.py` & `models/timesheet.py` | State models lacked transition guards (`approve()` was callable on `Approved` or `Rejected` runs; `lock()` was callable on `Draft` timesheets). | **L06 E.2 Only Drawn Transitions:** Systems must only permit state transitions explicitly modeled in the behavioral state machine. | Defined explicit `VALID_TRANSITIONS` maps and state guards on domain methods. Blocked duplicate approvals, disallowed direct approvals from `Rejected` without resubmission, and added `resubmit_for_approval()`. | Prevents black holes, miracles, and illegal lifecycle states. Guarantees immutable terminal approval states. |
+| `services/payroll_service.py` | Timesheets were locked via raw SQL (`UPDATE timesheets SET status = 'Locked'`), bypassing the domain layer. | **L07 B.4 Rule 4 Transitions Tie to Operations:** State changes must be driven by operations defined in the domain class. | Replaced raw SQL update with domain object hydration. The service now invokes `PayrollRun.approve(associated_timesheets=timesheet_objs)`, which calls `Timesheet.lock()` directly on each domain object before saving. | Preserves object encapsulation and adheres to the Three-Tier Architecture, ensuring business logic remains in domain models rather than leaking into raw SQL scripts. |
+
+#### Automated Verification
+- **Test Suite:** `test_prototype.py` updated with TEST 6 (Draft timesheet exclusion and salaried pay calculation) and TEST 7 (Domain state transition guards).
+- **Result:** 7 integration test suites passing with 100% success rate.
